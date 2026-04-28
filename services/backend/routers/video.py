@@ -5,6 +5,8 @@ from datetime import datetime
 from services.backend.services.download import run_download
 from services.backend.services.processor import save_and_split
 
+from videohash import VideoHash
+
 router = APIRouter()
 
 tasks_db = {}
@@ -38,6 +40,7 @@ async def receive_video(
     task_id = str(uuid4())
     content = await videoFile.read()
     download_dir, video_path, audio_path = save_and_split(task_id, videoFile.filename, content)
+    video_hash_str = VideoHash(path=str(video_path)).hash_hex
     tasks_db[task_id] = {
         "status": "DONE",
         "verdict": None,
@@ -45,6 +48,7 @@ async def receive_video(
         "download_dir": download_dir,
         "video_path": video_path,
         "audio_path": audio_path,
+        "pHash": video_hash_str,
     }
 
     return {
@@ -68,4 +72,5 @@ async def get_status(task_id: str):
         "audio_path": task.get("audio_path"),
         "error": task.get("error"),
         "timestamp": datetime.now().isoformat(),
+        "pHash": task["pHash"],
     }

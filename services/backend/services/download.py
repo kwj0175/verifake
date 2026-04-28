@@ -5,6 +5,7 @@ from pathlib import Path
 
 from services.backend.services.processor import separate_streams, TMP_DIR
 
+from videohash import VideoHash
 
 def _extract_shortcode(url: str) -> str:
     match = re.search(r'/(?:p|reel)/([A-Za-z0-9_-]+)', url)
@@ -44,6 +45,7 @@ async def run_download(task_id: str, url: str, tasks_db: dict):
         tasks_db[task_id]["download_dir"] = str(dest_dir)
         tasks_db[task_id]["video_path"] = video_path
         tasks_db[task_id]["audio_path"] = audio_path
+        tasks_db[task_id]["pHash"] = VideoHash(path=video_path).hash_hex
     except Exception as e:
         tasks_db[task_id]["status"] = "FAILED"
         tasks_db[task_id]["error"] = str(e)
