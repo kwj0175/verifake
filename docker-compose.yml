@@ -1,10 +1,11 @@
 services:
-  # 1. 메인 어플리케이션 서비스 (우분투 기반)
   app:
-    build: .  # image 대신 build 사용
+    build: .
     container_name: ubuntu_app
     tty: true
     stdin_open: true
+    ports: # test
+      - "8000:8000"
     volumes:
       - .:/app
     command: tail -f /dev/null
