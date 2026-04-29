@@ -1,0 +1,59 @@
+{
+  "schema_version": "video-stage1-v1",
+  "pipeline_stage": 1,
+  "internal_video_format": "mp4",
+  "sample_fps": 3.0,
+  "max_video_duration_sec": 300,
+  "frame_image_format": "jpg",
+  "face_crop_format": "jpg",
+  "bbox_format": "xyxy",
+  "timestamp_unit": "seconds",
+  "score_range": [0.0, 1.0],
+  "storage_root": "storage/jobs",
+  "paths": {
+    "job_root": "storage/jobs/{job_id}",
+    "input_dir": "storage/jobs/{job_id}/input",
+    "frames_dir": "storage/jobs/{job_id}/frames",
+    "faces_dir": "storage/jobs/{job_id}/faces",
+    "metadata_dir": "storage/jobs/{job_id}/metadata",
+    "output_dir": "storage/jobs/{job_id}/output",
+    "logs_dir": "storage/jobs/{job_id}/logs"
+  },
+  "preprocessing_output": "storage/jobs/{job_id}/metadata/preprocessing.json",
+  "detection_output": "storage/jobs/{job_id}/output/detection.json",
+  "final_output": "storage/jobs/{job_id}/output/result.json",
+  "face_detection": {
+    "package": "retina-face",
+    "import_name": "retinaface.RetinaFace",
+    "confidence_threshold": 0.9,
+    "max_faces_per_frame": 5
+  },
+  "quality": {
+    "visibility_min_confidence": 0.9,
+    "visibility_min_area_ratio": 0.05,
+    "blur_variance_reference": 400.0,
+    "motion_blur_threshold": 0.6,
+    "dark_frame_mean_threshold": 40.0,
+    "compression_block_size": 8
+  },
+  "detector": {
+    "framework": "DeepfakeBench",
+    "model_name": "EfficientNet-B4",
+    "score_field": "raw_fake_score",
+    "batch_size": 16,
+    "use_mock": false,
+    "weights_path": "services/ai/checkpoints/video/effnb4_best.pth",
+    "device": "auto",
+    "config_path": "services/ai/deepfakebench/training/config/detector/efficientnetb4.yaml"
+  },
+  "segment_merge": {
+    "score_threshold": 0.6,
+    "max_gap_sec": 1.0,
+    "min_segment_duration_sec": 0.5,
+    "top_k": 5
+  },
+  "video_score": {
+    "aggregation_method": "topk_mean",
+    "topk_frame_count": 10
+  }
+}

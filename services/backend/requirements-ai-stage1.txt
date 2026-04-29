@@ -1,0 +1,11 @@
+-r requirements-dev.txt
+numpy
+opencv-python-headless
+retina-face
+tensorflow
+tf-keras
+pyyaml
+torch
+torchvision
+efficientnet-pytorch
+Pillow
