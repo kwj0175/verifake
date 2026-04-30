@@ -6,6 +6,10 @@ static_ffmpeg.add_paths()
 from fastapi import FastAPI
 from services.backend.routers import video, instagram
 
+import PIL.Image
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+
 app = FastAPI(
     title="VeriFake API",
     description="영상 업로드 및 분석 상태 조회 API 문서",
