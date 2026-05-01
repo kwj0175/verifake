@@ -1,7 +1,7 @@
 # services/backend/services/analysis_manager.py
 
 from fcm_service import send_push_notification
-# AI 파트의 파일이 나오면 여기서 추가로 임포트합니다.
+# AI 파트의 파일이 나오면 여기서 추가로 임포트.
 # 예시 from ai_module import detect_fake
 
 def run_total_analysis(user_id, fcm_token):
@@ -33,7 +33,7 @@ def run_total_analysis(user_id, fcm_token):
     body = f"딥페이크 가능성 {ai_results['summary']['deepfake_chance']}% 감지. 상세보기에서 의심 구간을 확인하세요."
     
     # [STEP 3] 상세 데이터 연동 (extra_data)
-    # 푸시 알림을 눌렀을 때 앱에서 이미지와 같은 '상세보기' 화면을 띄울 수 있도록 데이터를 다 넣어줍니다.
+    # 푸시 알림을 눌렀을 때 앱에서 이미지와 같은 '상세보기' 화면을 띄울 수 있도록 데이터를 다 넣음.
     extra_data = {
         "deepfake_chance": str(ai_results['summary']['deepfake_chance']),
         "video_suspicious": ", ".join(ai_results['video_analysis']['suspicious_segments']),
@@ -44,15 +44,13 @@ def run_total_analysis(user_id, fcm_token):
     # [STEP 4] FCM 발송
     send_push_notification(fcm_token, title, body, data=extra_data)
 
-    # services/backend/services/analysis_manager.py 맨 아래 추가
 
+#테스트용 더미 데이터
 if __name__ == "__main__":
-    # 1. 테스트용 가짜 데이터 설정
-    # 실제 테스트를 하려면 우진 형에게 기기 토큰 하나만 보내달라고 하세요!
-    TEST_USER = "Hwang_Jin_San"
-    TEST_TOKEN = "우진_형에게_받은_실제_FCM_토큰_값" 
+    TEST_USER = "이름"
+    TEST_TOKEN = "토큰값"
 
-    print("=== 🛠️ 백엔드 통합 테스트 시작 ===")
+    print("===테스트 시작 ===")
     
     try:
         # 2. 전체 분석 로직 실행
