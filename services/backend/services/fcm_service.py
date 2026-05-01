@@ -27,7 +27,7 @@ def initialize_fcm():
 def send_push_notification(fcm_token, title, body, data=None):
     """
     사용자에게 푸시 알림을 발송합니다.
-    :fcm_token: 기기 고유 토큰 (우진 형이 DB에 저장해둘 값)
+    :fcm_token: 기기 고유 토큰
     :title: 알림 제목
     :body: 알림 내용
     :data: 상세 페이지 이동 등을 위한 추가 데이터 (딕셔너리)
