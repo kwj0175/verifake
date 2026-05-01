@@ -14,7 +14,7 @@ except ImportError:
     print("config.py 파일을 찾을 수 없습니다. 위치를 확인해주세요.")
 
 def initialize_fcm():
-    """서버 시작 시 FCM Admin SDK를 초기화합니다."""
+    """서버 시작 시 FCM Admin SDK초기화"""
     try:
         if not firebase_admin._apps:
             # JSON 키 경로를 가져오기.
