@@ -191,3 +191,12 @@ def timeout_audio_job(task_id: str, stage: str, timeout_sec: int, stdout: str = 
         "finished_at": _now(),
     })
     return job
+
+
+def clear_stores() -> None:
+    """테스트용: 모든 인메모리 저장소 초기화."""
+    upload_tasks_db.clear()
+    audio_jobs_db.clear()
+    video_detect_jobs_db.clear()
+    _upload_tasks.clear()
+    _audio_jobs.clear()
