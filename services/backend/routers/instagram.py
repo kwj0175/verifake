@@ -19,15 +19,94 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
-# 내부 헬퍼: 전처리 → 탐지 파이프라인 (BackgroundTask 에서 호출)
+# 내부 헬퍼: 오디오 파이프라인 (비디오 파이프라인 완료 후 자동 호출)
+# ---------------------------------------------------------------------------
+
+def _run_audio_pipeline(task_id: str, audio_path: str) -> None:
+    """오디오 분석 파이프라인 - 비디오 파이프라인 완료 후 자동 실행.
+
+    1. audio job 생성 및 실행
+    2. 결과를 VideoMetadata.deepfake_score / verdict 통합 (audio 결과 반영)
+    """
+    from services.backend.services.audio_analyzer import run_audio_job, get_audio_python
+    from services.backend.tasks import create_audio_job, get_audio_job
+
+    # AI 파이썬 실행 환경 확인 (없으면 오디오 분석 스킵)
+    try:
+        get_audio_python()
+    except RuntimeError as exc:
+        print(f"[audio pipeline] AI 런타임 없음, 오디오 분석 스킵 ({task_id}): {exc}")
+        return
+
+    artifacts_dir = Path("storage/jobs") / task_id / "audio"
+    create_audio_job(task_id, audio_path, str(artifacts_dir))
+    run_audio_job(task_id, Path(audio_path))
+
+    # 오디오 결과를 통합 분석에 반영
+    job = get_audio_job(task_id)
+    if job and job["status"] == "SUCCEEDED" and job.get("result"):
+        _merge_audio_result_to_db(task_id, job["result"])
+
+
+def _merge_audio_result_to_db(task_id: str, audio_result: dict) -> None:
+    """오디오 분석 결과를 DB의 최종 verdict/score에 통합 반영."""
+    from services.backend.services.analysis_manager import compute_final_verdict
+
+    db: Session = SessionLocal()
+    try:
+        task = db.query(models.VideoMetadata).filter(
+            models.VideoMetadata.task_id == task_id
+        ).first()
+        if not task:
+            return
+
+        # 비디오 score가 이미 저장돼 있으면 오디오와 통합
+        video_score = task.deepfake_score  # 0.0 ~ 100.0 또는 None
+        audio_score = _extract_audio_score(audio_result)
+
+        final_verdict, final_score = compute_final_verdict(
+            video_score=video_score,
+            audio_score=audio_score,
+        )
+
+        task.verdict = final_verdict
+        task.deepfake_score = final_score
+        db.commit()
+        print(f"[audio pipeline] 통합 결과 저장 완료 ({task_id}): {final_verdict} / {final_score}")
+    except Exception as exc:
+        db.rollback()
+        print(f"[audio pipeline] DB 통합 저장 실패 ({task_id}): {exc}")
+    finally:
+        db.close()
+
+
+def _extract_audio_score(audio_result: dict) -> float | None:
+    """audio_stage1 result.json에서 딥페이크 점수(0.0~100.0) 추출."""
+    try:
+        # audio_stage1 결과 스키마: {"fake_score": 0.xx} 또는 {"score": 0.xx}
+        raw = audio_result.get("fake_score") or audio_result.get("score")
+        if raw is None:
+            return None
+        score = float(raw)
+        # 0~1 범위이면 퍼센트로 변환
+        if score <= 1.0:
+            score = round(score * 100.0, 1)
+        return round(max(0.0, min(100.0, score)), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# 내부 헬퍼: 전처리 → 탐지 → 오디오 파이프라인 (BackgroundTask 에서 호출)
 # ---------------------------------------------------------------------------
 
 def _run_video_pipeline(task_id: str, video_path: str) -> None:
-    """전처리(preprocess) → 탐지(detect) → DB 저장 백그라운드 파이프라인.
+    """전처리(preprocess) → 탐지(detect) → DB 저장 → 오디오 분석 백그라운드 파이프라인.
 
     1. video stage1 preprocess 실행
     2. 생성된 preprocessing.json 으로 detect job 등록 및 실행
     3. result.json 파싱 → VideoMetadata.verdict / deepfake_score 저장
+    4. [추가] 오디오 분석 자동 트리거 (audio_path가 있을 때)
     """
     from services.ai.pipelines.video_stage1.config import get_stage1_storage_root
     from services.ai.common.job_paths import build_job_paths
@@ -81,11 +160,12 @@ def _run_video_pipeline(task_id: str, video_path: str) -> None:
         # 3. result.json 파싱 → DB 저장
         result_path = Path(artifacts_dir) / "result.json"
         if not result_path.exists():
-            # detect job 이 결과를 저장한 경로를 tasks_db 에서 확인
             from services.backend.tasks import get_video_detect_job
             job = get_video_detect_job(task_id)
             if job and job.get("result_path"):
                 result_path = Path(job["result_path"])
+
+        audio_path: str | None = None
 
         if result_path.exists():
             try:
@@ -93,6 +173,7 @@ def _run_video_pipeline(task_id: str, video_path: str) -> None:
                 task.verdict = verdict
                 task.deepfake_score = score
                 task.status = "COMPLETED"
+                audio_path = task.audio_path  # 오디오 트리거를 위해 보관
             except Exception as exc:
                 print(f"[pipeline] result parse failed for {task_id}: {exc}")
                 task.status = "FAILED"
@@ -114,20 +195,20 @@ def _run_video_pipeline(task_id: str, video_path: str) -> None:
         except Exception:
             pass
         print(f"[pipeline] unexpected error for {task_id}: {exc}")
+        audio_path = None
     finally:
         db.close()
 
+    # 4. [추가] 비디오 분석 완료 후 오디오 분석 자동 트리거
+    if audio_path:
+        print(f"[pipeline] 오디오 분석 자동 시작: {task_id}")
+        _run_audio_pipeline(task_id, audio_path)
+
 
 def _run_download_then_pipeline(task_id: str, url: str) -> None:
-    """인스타그램 다운로드 완료 후 비디오 파이프라인 자동 트리거.
-
-    run_download 는 async 함수이므로 새 이벤트 루프로 실행한 뒤
-    성공 시 _run_video_pipeline 을 이어서 호출합니다.
-    다운로드 실패 시 status 를 FAILED 로 업데이트합니다.
-    """
+    """인스타그램 다운로드 완료 후 비디오 파이프라인 자동 트리거."""
     import asyncio
 
-    # async run_download 를 동기 맥락에서 실행
     try:
         asyncio.run(run_download(task_id, url))
     except Exception as exc:
@@ -135,7 +216,6 @@ def _run_download_then_pipeline(task_id: str, url: str) -> None:
         _set_task_status(task_id, "FAILED")
         return
 
-    # 다운로드 후 DB 에서 video_path 조회
     db: Session = SessionLocal()
     try:
         task = db.query(models.VideoMetadata).filter(
@@ -148,7 +228,6 @@ def _run_download_then_pipeline(task_id: str, url: str) -> None:
     finally:
         db.close()
 
-    # 파이프라인 실행
     _run_video_pipeline(task_id, video_path)
 
 
@@ -185,7 +264,6 @@ async def receive_instagram(
     db.commit()
     db.refresh(new_task)
 
-    # 다운로드 완료 후 자동으로 video 파이프라인 트리거
     background_tasks.add_task(_run_download_then_pipeline, task_id, link)
 
     return {
@@ -212,12 +290,12 @@ async def receive_video(
         download_dir=download_dir,
         storage_path=video_path,
         audio_path=audio_path,
-        status="PENDING",  # 파이프라인이 완료되면 COMPLETED 로 업데이트됨
+        status="PENDING",
     )
     db.add(new_task)
     db.commit()
 
-    # 업로드 완료 즉시 AI 파이프라인 백그라운드 실행
+    # 비디오 파이프라인 시작 → 완료 후 오디오 분석 자동 트리거됨
     background_tasks.add_task(_run_video_pipeline, task_id, video_path)
 
     return {
@@ -242,7 +320,7 @@ async def get_status(task_id: str, db: Session = Depends(get_db)) -> dict:
         "video_path": task.storage_path,
         "audio_path": task.audio_path,
         "phash_value": task.phash_value,
-        "verdict": task.verdict,                                                 # [+ 추가]
-        "deepfake_score": task.deepfake_score,                                   # [+ 추가]
+        "verdict": task.verdict,
+        "deepfake_score": task.deepfake_score,
         "created_at": task.created_at.isoformat() if task.created_at else None,
     }
