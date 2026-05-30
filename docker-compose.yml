@@ -7,17 +7,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./services/backend:/app/services/backend
+      - .:/app
       - ./storage:/app/storage
     environment:
-      - PYTHONUNBUFFERED=1
-    cpus: "1"
-      - .:/app
-    depends_on:
-      - db
-    environment:
-      # FastAPI에서 사용할 DB 접속 주소
+      PYTHONUNBUFFERED: "1"
       DATABASE_URL: "mysql+pymysql://user:password@db:3306/verifake_db"
+    cpus: "1"
+    depends_on:
+      db:
+        condition: service_healthy
     command: uvicorn services.backend.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - backend_network
@@ -27,14 +25,20 @@ services:
     container_name: verifake_mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root_password  # 루트 비밀번호
-      MYSQL_DATABASE: verifake_db        # 생성할 DB 이름
-      MYSQL_USER: user                   # 일반 사용자
-      MYSQL_PASSWORD: password           # 일반 사용자 비밀번호
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: verifake_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
     ports:
       - "3306:3306"
     volumes:
-      - ./data/mysql:/var/lib/mysql      # 데이터 영구 저장
+      - ./data/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uuser", "-ppassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - backend_network
 
