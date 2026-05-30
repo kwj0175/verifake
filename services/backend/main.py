@@ -14,7 +14,9 @@ static_ffmpeg.add_paths()
 if not hasattr(PIL.Image, "ANTIALIAS"):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
-from services.backend.routers import video, instagram, audio, user, media, history
+# 버그 수정: video, audio는 AI 런타임 의존성이 있으므로 main에서 import 제거
+# (import만 해도 services.ai.* 무거운 모듈이 로드됨)
+from services.backend.routers import instagram, user, media, history
 from services.backend.database import engine
 from services.backend import models
 
@@ -108,23 +110,23 @@ def health_check() -> dict[str, str]:
 
 # ============ 라우터 등록 ============
 
-# 영상 분석 (Stage1 A/B)
-app.include_router(video.router, prefix="/api/v1")
-
-# 인스타그램 다운로드
+# 영상 수집 (인스타그램 다운로드 + 파일 업로드 + 상태 조회)
 app.include_router(instagram.router, prefix="/api/v1")
 
 # 미디어 처리 (영상/음성 분리, LLM 설명)
 app.include_router(media.router, prefix="/api/v1/media", tags=["Media"])
 
-# 오디오 분석
-app.include_router(audio.router, prefix="/api/v1/audio", tags=["Audio"])
-
 # 사용자 관리
 app.include_router(user.router, prefix="/api/v1", tags=["User"])
 
-app.include_router(history.router, prefix="/api/v1")  # [+ 추가]
+# 분석 기록 조회
+app.include_router(history.router, prefix="/api/v1")
 
+# NOTE: video.router(Stage1 AI 라우트)와 audio.router(오디오 AI 라우트)는
+# 메인 앱에 등록하지 않음 — AI 런타임 의존성이 있는 엔드포인트는
+# 별도 서비스에서 라우팅해야 함
+
+# LLM 설명 생성 엔드포인트 (별도 경로로 직접 등록)
 app.add_api_route(
     "/media/video-stage1/explain",
     media.explain_video_stage1,
