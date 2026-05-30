@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeftIcon } from 'react-native-heroicons/outline';
 import { styles } from './ResultScreen.styles';
@@ -42,7 +42,8 @@ export const ResultScreen = ({ navigation, route }: any) => {
 
     const isFakeResult = deriveIsFake(separatedMedia.verdict);
     const isFake = isFakeResult ?? false;
-    const deepfakeScore = separatedMedia.deepfakeScore ?? null;
+    // 버그 수정: deepfakeScore → deepfake_score (백엔드 응답 키와 일치)
+    const deepfakeScore = separatedMedia.deepfake_score ?? null;
     const hasVerdict = isFakeResult !== null;
 
     return (

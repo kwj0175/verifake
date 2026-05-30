@@ -70,11 +70,19 @@ export const AnalysisScreen = ({ navigation, route }: any) => {
 
                     const result = await getMediaTaskStatus(taskId);
 
+                    // 버그 수정: 백엔드 실제 status 값에 맞게 분기 수정
                     if (result.status === 'PENDING' || result.status === 'DOWNLOADING') {
                         setActiveStep(2);
-                    } else if (result.status === 'PROCESSING') {
+                    } else if (
+                        result.status === 'PROCESSING' ||
+                        result.status === 'PREPROCESSING'  // 버그 수정: PREPROCESSING 상태 추가
+                    ) {
+                        setActiveStep(2);
+                    } else if (result.status === 'ANALYZING') {
+                        // 버그 수정: ANALYZING 상태 → step 3 (AI 분석 중)
                         setActiveStep(3);
-                    } else if (result.status === 'DONE') {
+                    } else if (result.status === 'COMPLETED') {
+                        // 버그 수정: 'DONE' → 'COMPLETED'
                         setActiveStep(4);
                         await new Promise((r) => setTimeout(r, 600));
                         if (isMounted) {
