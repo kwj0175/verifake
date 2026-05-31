@@ -41,9 +41,10 @@ export const DetectionInputScreen = ({ navigation, route }: any) => {
                 });
                 const cacheBusterUri = `${uri}?t=${new Date().getTime()}`;
                 setThumbnailUri(cacheBusterUri);
-                console.log(cacheBusterUri);
             } catch (e) {
-                console.warn(e);
+                // 버그 수정: 웹에서 썸네일 생성 실패해도 videoUri는 정상 설정됨
+                // thumbnailUri가 null이어도 videoUri로 선택 상태 표시
+                console.warn('썸네일 생성 실패 (웹 환경에서는 정상):', e);
                 setThumbnailUri(null);
             }
         }
@@ -58,6 +59,40 @@ export const DetectionInputScreen = ({ navigation, route }: any) => {
         navigation.navigate('Analysis', { videoUri, thumbnailUri, url: trimmedUrl || null });
     };
 
+    const renderUploadBox = () => {
+        if (thumbnailUri) {
+            return (
+                <View style={{ width: '100%', height: '100%', borderRadius: 18, overflow: 'hidden' }}>
+                    <Image source={{ uri: thumbnailUri }} style={{ width: '100%', height: '100%' }} />
+                    <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', padding: 10, alignItems: 'center' }}>
+                        <Text style={{ color: '#fff', fontSize: 12 }}>다시 선택하려면 클릭하세요</Text>
+                    </View>
+                </View>
+            );
+        }
+
+        // 버그 수정: 웹에서 썸네일 없어도 videoUri가 있으면 선택됨 상태 표시
+        if (videoUri) {
+            const fileName = videoUri.split('/').pop() ?? '영상 파일';
+            return (
+                <View style={{ alignItems: 'center' }}>
+                    <CloudArrowUpIcon size={48} color="#7c6cfa" strokeWidth={1.5} />
+                    <Text style={[styles.uploadText, { color: '#7c6cfa' }]}>✓ 영상이 선택됐습니다</Text>
+                    <Text style={[styles.uploadSubText, { marginTop: 4 }]} numberOfLines={1}>{fileName}</Text>
+                    <Text style={{ color: '#666680', fontSize: 11, marginTop: 6 }}>다시 선택하려면 클릭하세요</Text>
+                </View>
+            );
+        }
+
+        return (
+            <View style={{ alignItems: 'center' }}>
+                <CloudArrowUpIcon size={48} color="#7c6cfa" strokeWidth={1.5} />
+                <Text style={styles.uploadText}>영상 선택하기</Text>
+                <Text style={styles.uploadSubText}>MP4, MOV 등 영상 파일 지원</Text>
+            </View>
+        );
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.content}>
@@ -69,20 +104,7 @@ export const DetectionInputScreen = ({ navigation, route }: any) => {
                     style={[styles.uploadBox, videoUri ? { borderColor: '#7c6cfa', borderStyle: 'solid' } : {}]}
                     onPress={pickVideo}
                 >
-                    {thumbnailUri ? (
-                        <View style={{ width: '100%', height: '100%', borderRadius: 18, overflow: 'hidden' }}>
-                            <Image source={{ uri: thumbnailUri }} style={{ width: '100%', height: '100%' }} />
-                            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.6)', padding: 10, alignItems: 'center' }}>
-                                <Text style={{ color: '#fff', fontSize: 12 }}>다시 선택하려면 클릭하세요</Text>
-                            </View>
-                        </View>
-                    ) : (
-                        <View style={{ alignItems: 'center' }}>
-                            <CloudArrowUpIcon size={48} color="#7c6cfa" strokeWidth={1.5} />
-                            <Text style={styles.uploadText}>영상 선택하기</Text>
-                            <Text style={styles.uploadSubText}>MP4, MOV 등 영상 파일 지원</Text>
-                        </View>
-                    )}
+                    {renderUploadBox()}
                 </TouchableOpacity>
 
                 <View style={styles.divider}>
