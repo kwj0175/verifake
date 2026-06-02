@@ -7,6 +7,20 @@ dataset_json_folder: './preprocessing/dataset_json'
 SWA: False
 save_avg: True
 log_dir: ./logs/training/
+# runtime defaults
+cuda: true
+train_batchSize: 16
+test_batchSize: 16
+train_batchSize_cpu: 8
+test_batchSize_cpu: 8
+train_batchSize_gpu: 16
+test_batchSize_gpu: 16
+workers: 4
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+amp: true
+drop_last: false
 # label settings
 label_dict:
   # DFD

@@ -15,13 +15,42 @@ def test_build_video_score_uses_topk_mean() -> None:
         {"frame_index": 2, "timestamp_sec": 0.666, "face_count": 1, "max_fake_score": 0.5, "avg_fake_score": 0.5, "score_source": "face_scores"},
     ]
 
-    result = build_video_score(frame_scores, [], topk_frame_count=2)
+    result = build_video_score(
+        frame_scores,
+        [],
+        topk_frame_count=2,
+        score_threshold=0.6,
+    )
 
     assert result["max_fake_score"] == 0.8
     assert result["topk_mean_fake_score"] == 0.65
     assert isclose(result["avg_fake_score"], 0.4666666666666666)
     assert result["final_fake_score"] == 0.65
     assert result["aggregation_method"] == "topk_mean"
+    assert result["score_threshold"] == 0.6
+    assert result["analyzed_frame_count"] == 3
+    assert result["suspicious_frame_count"] == 1
+    assert isclose(result["suspicious_frame_ratio"], 1 / 3)
+    assert isclose(result["score_std"], 0.28674417556808757)
+
+
+def test_build_video_score_can_use_average_without_relabeling() -> None:
+    frame_scores = [
+        {"frame_index": 0, "timestamp_sec": 0.0, "face_count": 1, "max_fake_score": 0.1, "avg_fake_score": 0.1, "score_source": "face_scores"},
+        {"frame_index": 1, "timestamp_sec": 0.333, "face_count": 1, "max_fake_score": 0.8, "avg_fake_score": 0.8, "score_source": "face_scores"},
+        {"frame_index": 2, "timestamp_sec": 0.666, "face_count": 1, "max_fake_score": 0.5, "avg_fake_score": 0.5, "score_source": "face_scores"},
+    ]
+
+    result = build_video_score(
+        frame_scores,
+        [],
+        topk_frame_count=2,
+        aggregation_method="avg",
+        score_threshold=0.6,
+    )
+
+    assert isclose(result["final_fake_score"], 0.4666666666666666)
+    assert result["aggregation_method"] == "avg"
 
 
 def test_build_video_score_returns_zeroes_for_empty_frame_scores() -> None:
@@ -33,6 +62,11 @@ def test_build_video_score_returns_zeroes_for_empty_frame_scores() -> None:
         "avg_fake_score": 0.0,
         "final_fake_score": 0.0,
         "aggregation_method": "topk_mean",
+        "score_threshold": 0.6,
+        "analyzed_frame_count": 0,
+        "suspicious_frame_count": 0,
+        "suspicious_frame_ratio": 0.0,
+        "score_std": 0.0,
     }
 
 

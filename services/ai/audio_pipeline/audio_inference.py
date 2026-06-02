@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 import wave
@@ -12,6 +13,7 @@ from statistics import mean
 from typing import Any
 
 from .antideepfake import DEFAULT_CHECKPOINT_PATH, DEFAULT_HPARAMS_PATH, run_antideepfake_inference
+from services.ai.common.runtime_probe import resolve_torch_device
 
 DEFAULT_MIN_SPEECH_COVERAGE = 0.05
 DEFAULT_MAX_WINDOWS = 512
@@ -19,6 +21,17 @@ DEFAULT_MAX_WINDOWS = 512
 
 class AudioInferenceError(RuntimeError):
     """stage-4 audio inference failure."""
+
+
+def _fast_audio_once_enabled() -> bool:
+    return os.getenv("VERIFAKE_FAST_AUDIO_ONCE", "1").strip().lower() not in {"0", "false", "no"}
+
+
+def _format_model_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return f"{type(exc).__name__}: {message}"
+    return type(exc).__name__
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -183,6 +196,7 @@ def _build_window_result(
         "audio_real_score_raw": None,
         "audio_fake_prob_like": None,
         "inference_status": "pending",
+        "model_error": None,
     }
 
     if unsupported_reason is not None:
@@ -296,6 +310,14 @@ def run_audio_inference(
     skip_no_speech_windows: bool = True,
     min_speech_coverage: float = DEFAULT_MIN_SPEECH_COVERAGE,
 ) -> dict[str, Any]:
+    if not device:
+        explicit_device = os.getenv("VERIFAKE_AI_DEVICE", "").strip()
+        if explicit_device:
+            device = explicit_device
+
+    if not device:
+        device = resolve_torch_device(default="cpu", cuda_index_env_var="VERIFAKE_CUDA_DEVICE")
+
     if min_speech_coverage < 0.0 or min_speech_coverage > 1.0:
         raise AudioInferenceError("min_speech_coverage는 0.0 이상 1.0 이하여야 합니다.")
 
@@ -331,20 +353,12 @@ def run_audio_inference(
     if unsupported_reason is None:
         with tempfile.TemporaryDirectory(prefix="audio_inference_") as temp_dir:
             temp_dir_path = Path(temp_dir)
-            for window_row in window_rows:
-                if window_row["inference_status"] != "scored":
-                    continue
-
-                clip_path = temp_dir_path / (
-                    f"window_{window_row['window_id']:04d}_"
-                    f"{window_row['start']:.6f}_{window_row['end']:.6f}.wav"
-                )
-                _extract_window_clip(source_wav_path=wav_path, window_row=window_row, output_path=clip_path)
-                request_id = f"window-{window_row['window_id']:04d}"
+            scored_rows = [row for row in window_rows if row["inference_status"] == "scored"]
+            if scored_rows and _fast_audio_once_enabled():
                 try:
                     inference_result = run_antideepfake_inference(
-                        clip_path,
-                        request_id=request_id,
+                        wav_path,
+                        request_id="full-audio",
                         checkpoint_path=checkpoint_path or DEFAULT_CHECKPOINT_PATH,
                         hparams_path=hparams_path or DEFAULT_HPARAMS_PATH,
                         python_executable=python_executable,
@@ -352,15 +366,47 @@ def run_audio_inference(
                     )
                 except FileNotFoundError:
                     raise
-                except Exception:
-                    window_row["inference_status"] = "failed_model_error"
-                    continue
+                except Exception as exc:
+                    model_error = _format_model_error(exc)
+                    for window_row in scored_rows:
+                        window_row["inference_status"] = "failed_model_error"
+                        window_row["model_error"] = model_error
+                else:
+                    for window_row in scored_rows:
+                        window_row["audio_fake_score_raw"] = inference_result.fake_logit
+                        window_row["audio_real_score_raw"] = inference_result.real_logit
+                        # NOTE: audio_fake_prob_like is a softmax-based probability-like score,
+                        # not a calibrated probability.
+                        window_row["audio_fake_prob_like"] = inference_result.fake_probability
+            else:
+                for window_row in scored_rows:
+                    clip_path = temp_dir_path / (
+                        f"window_{window_row['window_id']:04d}_"
+                        f"{window_row['start']:.6f}_{window_row['end']:.6f}.wav"
+                    )
+                    _extract_window_clip(source_wav_path=wav_path, window_row=window_row, output_path=clip_path)
+                    request_id = f"window-{window_row['window_id']:04d}"
+                    try:
+                        inference_result = run_antideepfake_inference(
+                            clip_path,
+                            request_id=request_id,
+                            checkpoint_path=checkpoint_path or DEFAULT_CHECKPOINT_PATH,
+                            hparams_path=hparams_path or DEFAULT_HPARAMS_PATH,
+                            python_executable=python_executable,
+                            device=device,
+                        )
+                    except FileNotFoundError:
+                        raise
+                    except Exception as exc:
+                        window_row["inference_status"] = "failed_model_error"
+                        window_row["model_error"] = _format_model_error(exc)
+                        continue
 
-                window_row["audio_fake_score_raw"] = inference_result.fake_logit
-                window_row["audio_real_score_raw"] = inference_result.real_logit
-                # NOTE: audio_fake_prob_like is a softmax-based probability-like score,
-                # not a calibrated probability.
-                window_row["audio_fake_prob_like"] = inference_result.fake_probability
+                    window_row["audio_fake_score_raw"] = inference_result.fake_logit
+                    window_row["audio_real_score_raw"] = inference_result.real_logit
+                    # NOTE: audio_fake_prob_like is a softmax-based probability-like score,
+                    # not a calibrated probability.
+                    window_row["audio_fake_prob_like"] = inference_result.fake_probability
 
     scored_window_count = sum(1 for window in window_rows if window["inference_status"] == "scored")
     failed_window_count = sum(1 for window in window_rows if window["inference_status"] == "failed_model_error")
@@ -370,6 +416,13 @@ def run_audio_inference(
     all_quality_flags = list(quality_flags)
     if failed_window_count > 0:
         all_quality_flags = list(dict.fromkeys([*all_quality_flags, "INFERENCE_FAILED"]))
+    model_errors = sorted(
+        {
+            str(window["model_error"])
+            for window in window_rows
+            if window.get("inference_status") == "failed_model_error" and window.get("model_error")
+        }
+    )
 
     result = {
         "audio_inference": {
@@ -385,6 +438,7 @@ def run_audio_inference(
             "skipped_window_count": skipped_window_count,
             "failed_window_count": failed_window_count,
             "score_summary": _build_score_summary(window_rows),
+            "model_errors": model_errors,
             "windows": window_rows,
             "quality_flags": all_quality_flags,
         },

@@ -13,7 +13,11 @@ class AudioAnalyzerTests(unittest.TestCase):
         from services.backend.services.audio_analyzer import get_audio_device
 
         with patch.dict("os.environ", {}, clear=False):
-            self.assertEqual(get_audio_device(), "cpu")
+            with patch(
+                "services.backend.services.audio_analyzer.resolve_torch_device",
+                return_value="cpu",
+            ):
+                self.assertEqual(get_audio_device(), "cpu")
 
     def test_get_audio_device_uses_env_override(self) -> None:
         from services.backend.services.audio_analyzer import get_audio_device
@@ -117,6 +121,9 @@ class AudioAnalyzerTests(unittest.TestCase):
             ), patch(
                 "services.backend.services.audio_analyzer.subprocess.run",
                 side_effect=fake_run,
+            ), patch(
+                "services.backend.services.audio_analyzer.resolve_torch_device",
+                return_value="cpu",
             ):
                 run_audio_job(job_id, input_path)
 
@@ -154,6 +161,9 @@ class AudioAnalyzerTests(unittest.TestCase):
             ), patch(
                 "services.backend.services.audio_analyzer.subprocess.run",
                 side_effect=fake_run,
+            ), patch(
+                "services.backend.services.audio_analyzer._resolve_device_from_runtime",
+                return_value="cpu",
             ):
                 run_audio_job(job_id, input_path)
 
@@ -189,6 +199,9 @@ class AudioAnalyzerTests(unittest.TestCase):
             ), patch(
                 "services.backend.services.audio_analyzer.subprocess.run",
                 side_effect=fake_run,
+            ), patch(
+                "services.backend.services.audio_analyzer._resolve_device_from_runtime",
+                return_value="cuda:0",
             ):
                 run_audio_job(job_id, input_path)
 

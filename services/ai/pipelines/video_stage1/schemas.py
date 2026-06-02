@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -70,8 +70,8 @@ class SegmentScore(BaseModel):
     frame_count: int = Field(..., ge=0)
     max_fake_score: float = Field(..., ge=0.0, le=1.0)
     avg_fake_score: float = Field(..., ge=0.0, le=1.0)
-    representative_frame_index: int | None = Field(default=None, ge=0)
-    representative_frame_path: str | None = None
+    representative_frame_index: Optional[int] = Field(default=None, ge=0)
+    representative_frame_path: Optional[str] = None
 
 
 class TopSegment(BaseModel):
@@ -80,8 +80,8 @@ class TopSegment(BaseModel):
     start_sec: float = Field(..., ge=0.0)
     end_sec: float = Field(..., ge=0.0)
     segment_score: float = Field(..., ge=0.0, le=1.0)
-    reason: str | None = None
-    representative_frame_path: str | None = None
+    reason: Optional[str] = None
+    representative_frame_path: Optional[str] = None
 
 
 class VideoScore(BaseModel):
@@ -90,6 +90,11 @@ class VideoScore(BaseModel):
     avg_fake_score: float = Field(..., ge=0.0, le=1.0)
     final_fake_score: float = Field(..., ge=0.0, le=1.0)
     aggregation_method: str
+    score_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    analyzed_frame_count: int = Field(default=0, ge=0)
+    suspicious_frame_count: int = Field(default=0, ge=0)
+    suspicious_frame_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    score_std: float = Field(default=0.0, ge=0.0)
 
 
 class DetectionOutput(BaseModel):
@@ -105,7 +110,7 @@ class DetectionOutput(BaseModel):
     segment_scores: list[SegmentScore]
     top_segments: list[TopSegment]
     video_score: VideoScore
-    errors: list[dict[str, Any] | str]
+    errors: list[Union[dict[str, Any], str]]
 
 
 class ResultInput(BaseModel):

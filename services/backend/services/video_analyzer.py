@@ -46,7 +46,16 @@ def _truncate_log(value: str | bytes | None) -> str:
 
 
 def get_video_ai_python() -> Path:
-    raw_path = os.getenv("VERIFAKE_VIDEO_AI_PYTHON") or sys.executable
+    raw_path = os.getenv("VERIFAKE_VIDEO_AI_PYTHON")
+    if not raw_path:
+        raw_path = sys.executable
+        project_root = Path(__file__).resolve().parents[3]
+        env_name = ".venv-antideepfake"
+        exe_name = "python.exe" if os.name == "nt" else "python"
+        candidate = project_root / env_name / "Scripts" / exe_name
+        if candidate.exists():
+            raw_path = str(candidate)
+
     python_path = Path(raw_path).expanduser()
     if not python_path.is_absolute():
         python_path = Path.cwd() / python_path

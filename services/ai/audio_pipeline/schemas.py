@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -39,8 +39,8 @@ class AudioAnalysisRequest(BaseModel):
 
 class OriginalAudioMetadata(BaseModel):
 
-    codec: str | None = None 
-    bitrate: int | None = Field(
+    codec: Optional[str] = None
+    bitrate: Optional[int] = Field(
         default=None,
         ge=0,
         description="원본 비트레이트 / 단위 : bits per second",
@@ -74,15 +74,19 @@ class AudioAnalysisResult(BaseModel):
     file_path: str = Field(..., min_length=1)
     original_metadata: OriginalAudioMetadata
 
-    audio_fake_score_raw: float
-    audio_real_score_raw: float
-    audio_fake_prob_like: float = Field(..., ge=0.0, le=1.0)
+    audio_fake_score_raw: Optional[float] = None
+    audio_real_score_raw: Optional[float] = None
+    audio_fake_prob_like: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     audio_uncertainty: float = Field(
         ...,
         ge=0.0,
         le=1.0,
         description="높을수록 결과가 덜 안정적이거나 충분한 근거가 부족하다는 뜻",
     )
+    scored_window_count: int = Field(..., ge=0)
+    failed_window_count: int = Field(..., ge=0)
+    skipped_window_count: int = Field(..., ge=0)
+    audio_model_error: Optional[str] = None
 
     human_speech_detected: bool
     evidence_level: EvidenceLevel = Field(

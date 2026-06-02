@@ -32,7 +32,6 @@ from sklearn import metrics
 from metrics.utils import get_test_metrics
 
 FFpp_pool=['FaceForensics++','FF-DF','FF-F2F','FF-FS','FF-NT']#
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Trainer(object):
@@ -59,12 +58,24 @@ class Trainer(object):
         self.writers = {}  # dict to maintain different tensorboard writers for each dataset and metric
         self.logger = logger
         self.metric_scoring = metric_scoring
+        self.device = torch.device(
+            "cuda" if config.get("cuda", torch.cuda.is_available()) and torch.cuda.is_available() else "cpu"
+        )
+        self.use_amp = bool(config.get("amp", False)) and self.device.type == "cuda"
+        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
         # maintain the best metric of all epochs
         self.best_metrics_all_time = defaultdict(
             lambda: defaultdict(lambda: float('-inf')
             if self.metric_scoring != 'eer' else float('inf'))
         )
         self.speed_up()  # move model to GPU
+
+        if self.device.type == "cuda":
+            self.logger.info(f"Use device: {self.device}")
+            self.logger.info(f"CUDA device: {torch.cuda.get_device_name(self.device.index or 0)}")
+            self.logger.info(f"AMP enabled: {self.use_amp}")
+        else:
+            self.logger.info("Use device: CPU")
 
         # get current time
         self.timenow = time_now
@@ -100,14 +111,29 @@ class Trainer(object):
 
 
     def speed_up(self):
-        self.model.to(device)
-        self.model.device = device
+        self.model.to(self.device)
+        self.model.device = self.device
         if self.config['ddp'] == True:
             num_gpus = torch.cuda.device_count()
             print(f'avai gpus: {num_gpus}')
             # local_rank=[i for i in range(0,num_gpus)]
             self.model = DDP(self.model, device_ids=[self.config['local_rank']],find_unused_parameters=True, output_device=self.config['local_rank'])
             #self.optimizer =  nn.DataParallel(self.optimizer, device_ids=[int(os.environ['LOCAL_RANK'])])
+
+    def _move_to_device(self, data_dict):
+        if data_dict is None:
+            return data_dict
+        use_non_blocking = bool(self.config.get("pin_memory", True))
+        for key in data_dict.keys():
+            value = data_dict[key]
+            if value is None or key == 'name':
+                continue
+            if torch.is_tensor(value):
+                data_dict[key] = value.to(self.device, non_blocking=use_non_blocking)
+        return data_dict
+
+    def _autocast_enabled(self):
+        return self.use_amp and self.device.type == "cuda"
 
     def setTrain(self):
         self.model.train()
@@ -188,7 +214,7 @@ class Trainer(object):
                 if i == 0:
                     pred_first = predictions
                     losses_first = losses
-                self.optimizer.zero_grad()
+                self.optimizer.zero_grad(set_to_none=True)
                 losses['overall'].backward()
                 if i == 0:
                     self.optimizer.first_step(zero_grad=True)
@@ -196,17 +222,20 @@ class Trainer(object):
                     self.optimizer.second_step(zero_grad=True)
             return losses_first, pred_first
         else:
-
-            predictions = self.model(data_dict)
-            if type(self.model) is DDP:
-                losses = self.model.module.get_losses(data_dict, predictions)
+            with torch.amp.autocast("cuda", enabled=self._autocast_enabled()):
+                predictions = self.model(data_dict)
+                if type(self.model) is DDP:
+                    losses = self.model.module.get_losses(data_dict, predictions)
+                else:
+                    losses = self.model.get_losses(data_dict, predictions)
+            self.optimizer.zero_grad(set_to_none=True)
+            if self.use_amp:
+                self.scaler.scale(losses['overall']).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
             else:
-                losses = self.model.get_losses(data_dict, predictions)
-            self.optimizer.zero_grad()
-            losses['overall'].backward()
-            self.optimizer.step()
-
-
+                losses['overall'].backward()
+                self.optimizer.step()
             return losses,predictions
 
 
@@ -238,10 +267,7 @@ class Trainer(object):
 
         for iteration, data_dict in tqdm(enumerate(train_data_loader),total=len(train_data_loader)):
             self.setTrain()
-            # more elegant and more scalable way of moving data to GPU
-            for key in data_dict.keys():
-                if data_dict[key]!=None and key!='name':
-                    data_dict[key]=data_dict[key].cuda()
+            data_dict = self._move_to_device(data_dict)
 
             losses,predictions=self.train_step(data_dict)
 
@@ -350,10 +376,7 @@ class Trainer(object):
             if 'label_spe' in data_dict:
                 data_dict.pop('label_spe')  # remove the specific label
             data_dict['label'] = torch.where(data_dict['label']!=0, 1, 0)  # fix the label to 0 and 1 only
-            # move data to GPU elegantly
-            for key in data_dict.keys():
-                if data_dict[key]!=None:
-                    data_dict[key]=data_dict[key].cuda()
+            data_dict = self._move_to_device(data_dict)
             # model forward without considering gradient computation
             predictions = self.inference(data_dict)
             label_lists += list(data_dict['label'].cpu().detach().numpy())
@@ -461,5 +484,6 @@ class Trainer(object):
 
     @torch.no_grad()
     def inference(self, data_dict):
-        predictions = self.model(data_dict, inference=True)
+        with torch.amp.autocast("cuda", enabled=self._autocast_enabled()):
+            predictions = self.model(data_dict, inference=True)
         return predictions

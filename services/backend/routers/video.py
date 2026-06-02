@@ -7,7 +7,7 @@ import subprocess
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import Optional, TypedDict
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -35,7 +35,7 @@ _DETECT_RUNTIME_ERROR = "Stage1 B AI 런타임이 준비되지 않았습니다."
 
 class VideoStage1PreprocessRequest(BaseModel):
     file_path: str
-    job_id: str | None = None
+    job_id: Optional[str] = None
 
 
 class VideoStage1DetectRequest(BaseModel):
@@ -55,7 +55,10 @@ def _get_stage1_storage_root() -> Path:
     return Path(get_stage1_storage_root())
 
 
-def run_video_stage1_preprocess_job(input_file: Path, job_id: str | None = None) -> VideoStage1PreprocessResult:
+def run_video_stage1_preprocess_job(
+    input_file: Path,
+    job_id: Optional[str] = None,
+) -> VideoStage1PreprocessResult:
     from services.ai.pipelines.video_stage1.preprocess import run_video_stage1_preprocess
 
     raw_result: dict[str, object] = run_video_stage1_preprocess(input_path=str(input_file), job_id=job_id)
@@ -117,7 +120,7 @@ def _validate_job_id(job_id: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 @router.post("/video-stage1/preprocess", summary="Stage1 A 전처리 실행", tags=["Video"])
-def preprocess_video_stage1(req: VideoStage1PreprocessRequest) -> dict:
+def preprocess_video_stage1(req: VideoStage1PreprocessRequest) -> dict[str, str]:
     try:
         _validate_job_id(req.job_id)
         input_path = _validate_project_file_path(req.file_path)
@@ -143,7 +146,7 @@ def preprocess_video_stage1(req: VideoStage1PreprocessRequest) -> dict:
 
 
 @router.post("/video-stage1/detect", summary="Stage1 B 탐지 실행", tags=["Video"])
-def detect_video_stage1(req: VideoStage1DetectRequest) -> dict:
+def detect_video_stage1(req: VideoStage1DetectRequest) -> dict[str, object]:
     preprocessing_json_path = _validate_preprocessing_json_path(req.preprocessing_json)
 
     try:

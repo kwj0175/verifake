@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -30,14 +31,44 @@ def _load_retinaface():
     return RetinaFace
 
 
+def _should_use_retinaface() -> bool:
+    detector = os.getenv("VERIFAKE_FACE_DETECTOR", "opencv").strip().lower()
+    return detector in {"retinaface", "retina-face"}
+
+
 def _run_retinaface_detect_faces(RetinaFace, image: object, confidence_threshold: float):
-    try:
-        return RetinaFace.detect_faces(image, threshold=confidence_threshold)
-    except Exception as exc:
-        raise Stage1UnavailableError(
-            "Stage1 preprocessing requires a working retina-face/TensorFlow runtime. "
-            "Install services/backend/requirements-ai-stage1.txt and set TF_USE_LEGACY_KERAS=1 before starting the API."
-        ) from exc
+    return RetinaFace.detect_faces(image, threshold=confidence_threshold)
+
+
+def _detect_faces_with_haar(cv2, image: object) -> list[dict[str, Any]]:
+    cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
+    if not cascade_path.exists():
+        return []
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    cascade = cv2.CascadeClassifier(str(cascade_path))
+    detections = cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=4,
+        minSize=(48, 48),
+    )
+    return [
+        {
+            "bbox": [int(x), int(y), int(x + w), int(y + h)],
+            "score": 0.5,
+        }
+        for x, y, w, h in detections
+    ]
+
+
+def _center_crop_detection(width: int, height: int) -> dict[str, Any]:
+    crop_size = int(min(width, height) * 0.8)
+    x1 = max(0, (width - crop_size) // 2)
+    y1 = max(0, (height - crop_size) // 2)
+    return {
+        "bbox": [x1, y1, min(width, x1 + crop_size), min(height, y1 + crop_size)],
+        "score": 0.0,
+    }
 
 
 def _normalize_retinaface_results(detections: object) -> list[dict[str, Any]]:
@@ -87,7 +118,13 @@ def detect_and_crop_faces(
     max_faces_per_frame: int = 5,
 ) -> list[dict[str, Any]]:
     cv2 = _load_cv2()
-    RetinaFace = _load_retinaface()
+    if _should_use_retinaface():
+        try:
+            RetinaFace = _load_retinaface()
+        except Stage1UnavailableError:
+            RetinaFace = None
+    else:
+        RetinaFace = None
     output_dir = Path(faces_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -99,8 +136,19 @@ def detect_and_crop_faces(
             continue
 
         frame_height, frame_width = image.shape[:2]
-        raw_detections = _run_retinaface_detect_faces(RetinaFace, image, confidence_threshold)
-        detections = _normalize_retinaface_results(raw_detections)
+        detections: list[dict[str, Any]] = []
+        if RetinaFace is not None:
+            try:
+                raw_detections = _run_retinaface_detect_faces(RetinaFace, image, confidence_threshold)
+                detections = _normalize_retinaface_results(raw_detections)
+            except Exception:
+                RetinaFace = None
+
+        if not detections:
+            detections = _detect_faces_with_haar(cv2, image)
+        if not detections:
+            detections = [_center_crop_detection(frame_width, frame_height)]
+
         detections.sort(
             key=lambda detection: (
                 (detection["bbox"][2] - detection["bbox"][0])

@@ -7,11 +7,13 @@ import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
+import logging
 
 from services.ai.inference.video_stage1.deepfakebench_efficientnet_b4 import (
     predict_face_crops,
 )
 from services.ai.pipelines.video_stage1.config import load_stage1_config
+from services.ai.common.runtime_probe import summarize_runtime
 from services.ai.pipelines.video_stage1.scoring import (
     aggregate_face_scores_to_frame_scores,
 )
@@ -30,6 +32,23 @@ from services.ai.pipelines.video_stage1.summarize import (
 
 
 KST = timezone(timedelta(hours=9))
+LOGGER = logging.getLogger(__name__)
+
+
+def _cuda_available() -> bool:
+    try:
+        import torch
+    except ImportError:
+        return False
+    return bool(torch.cuda.is_available())
+
+
+def _resolve_detector_batch_size(config: dict[str, Any]) -> int:
+    detector_config = config["detector"]
+    device = str(detector_config.get("device", "auto")).lower()
+    use_cuda = device.startswith("cuda") or (device == "auto" and _cuda_available())
+    key = "batch_size_gpu" if use_cuda else "batch_size_cpu"
+    return int(detector_config.get(key, detector_config.get("batch_size", 16 if use_cuda else 8)))
 
 
 def _load_json(file_path: Path) -> dict[str, Any]:
@@ -60,6 +79,8 @@ def _extract_face_items(preprocessing: dict[str, Any]) -> list[dict[str, Any]]:
 
 def run_video_stage1_detection(preprocessing_json_path: str) -> dict[str, Any]:
     config = load_stage1_config()
+    LOGGER.info("Video Stage 1 runtime check:\n%s", summarize_runtime())
+
     preprocessing_path = Path(preprocessing_json_path)
     preprocessing = _load_json(preprocessing_path)
     job_id = preprocessing["job_id"]
@@ -67,7 +88,7 @@ def run_video_stage1_detection(preprocessing_json_path: str) -> dict[str, Any]:
     face_items = _extract_face_items(preprocessing)
     face_scores = predict_face_crops(
         face_items,
-        batch_size=config["detector"]["batch_size"],
+        batch_size=_resolve_detector_batch_size(config),
         use_mock=bool(config["detector"].get("use_mock", True)),
         weights_path=config["detector"].get("weights_path"),
         device=str(config["detector"].get("device", "auto")),
@@ -96,6 +117,10 @@ def run_video_stage1_detection(preprocessing_json_path: str) -> dict[str, Any]:
         frame_scores,
         segment_scores,
         topk_frame_count=config["video_score"]["topk_frame_count"],
+        aggregation_method=config["video_score"].get(
+            "aggregation_method", "topk_mean"
+        ),
+        score_threshold=config["segment_merge"]["score_threshold"],
     )
 
     analyzed_frame_count = len({item["frame_index"] for item in face_scores})

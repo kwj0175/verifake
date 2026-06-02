@@ -24,6 +24,7 @@ var/
 wheels/
 experiments/
 hparams/*.yaml
+!hparams/mms_300m_audio_pipeline.yaml
 share/python-wheels/
 *.egg-info/
 .installed.cfg

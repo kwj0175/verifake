@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 from services.backend.tasks import (
+    fail_audio_job,
     get_audio_job,
     start_audio_job,
-    fail_audio_job,
     succeed_audio_job,
     timeout_audio_job,
 )
+from services.ai.common.runtime_probe import resolve_torch_device
 
 
 AUDIO_STAGE1_TIMEOUT_SEC = 30 * 60
@@ -57,9 +57,47 @@ def validate_audio_python() -> Path:
     return get_audio_python()
 
 
-def get_audio_device() -> str:
-    """사용할 AI 디바이스 조회 (cpu/cuda 등)"""
-    return os.getenv("VERIFAKE_AI_DEVICE", DEFAULT_AI_DEVICE).strip() or DEFAULT_AI_DEVICE
+def _resolve_device_from_runtime(python_executable: Path) -> str:
+    script = (
+        "import os\\n"
+        "try:\\n"
+        "    import torch\\n"
+        "    if not torch.cuda.is_available():\\n"
+        "        print('cpu')\\n"
+        "    else:\\n"
+        "        preferred = os.getenv('VERIFAKE_CUDA_DEVICE', '0').strip()\\n"
+        "        if preferred.isdigit():\\n"
+        "            print(f'cuda:{preferred}')\\n"
+        "        else:\\n"
+        "            print(preferred or 'cuda')\\n"
+        "except Exception:\\n"
+        "    print('cpu')\\n"
+    )
+
+    try:
+        result = subprocess.run(
+            [str(python_executable), "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except Exception:
+        return DEFAULT_AI_DEVICE
+
+    selected = (result.stdout or "").strip()
+    if selected:
+        return selected
+    return DEFAULT_AI_DEVICE
+
+
+def get_audio_device(python_executable: Path | None = None) -> str:
+    explicit_device = os.getenv("VERIFAKE_AI_DEVICE", "").strip()
+    if explicit_device:
+        return explicit_device
+    if python_executable is not None:
+        return _resolve_device_from_runtime(python_executable)
+    return resolve_torch_device(default=DEFAULT_AI_DEVICE, cuda_index_env_var="VERIFAKE_CUDA_DEVICE")
 
 
 def build_audio_stage1_command(
@@ -94,14 +132,14 @@ def run_audio_job(job_id: str, input_path: Path) -> None:
     try:
         # 준비 단계
         python_executable = get_audio_python()
-        device = get_audio_device()
+        device = get_audio_device(python_executable)
         output_dir = Path("storage/jobs") / job_id / "audio"
         output_dir.mkdir(parents=True, exist_ok=True)
         result_path = output_dir / RESULT_FILENAME
 
         # 작업 시작
         start_audio_job(
-            job_id=job_id,
+            task_id=job_id,
             stage="audio_stage1",
             audio_path=str(input_path.resolve()),
             artifacts_dir=str(output_dir),

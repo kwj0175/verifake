@@ -7,5 +7,6 @@ tf-keras
 pyyaml
 torch
 torchvision
+torchaudio
 efficientnet-pytorch
 Pillow
