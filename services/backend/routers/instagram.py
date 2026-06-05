@@ -1,6 +1,7 @@
 # pyright: reportMissingImports=false
 from __future__ import annotations
 
+import concurrent.futures
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -19,20 +20,87 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
-# 내부 헬퍼: 전처리 → 탐지 파이프라인 (BackgroundTask 에서 호출)
+# 내부 헬퍼: 비디오 분석 (preprocess → detect)
 # ---------------------------------------------------------------------------
 
-def _run_video_pipeline(task_id: str, video_path: str) -> None:
-    """전처리(preprocess) → 탐지(detect) → DB 저장 백그라운드 파이프라인.
-
-    1. video stage1 preprocess 실행
-    2. 생성된 preprocessing.json 으로 detect job 등록 및 실행
-    3. result.json 파싱 → VideoMetadata.verdict / deepfake_score 저장
-    """
+def _run_video_analysis(task_id: str, video_path: str) -> tuple[str, float] | None:
+    """Stage1 전처리 → 탐지 실행. (verdict, score) 또는 None 반환."""
     from services.ai.pipelines.video_stage1.config import get_stage1_storage_root
     from services.ai.common.job_paths import build_job_paths
     from services.backend.routers.video import run_video_stage1_preprocess_job
 
+    print(f"[video] ① 전처리 시작 ({task_id})")
+    try:
+        preprocess_result = run_video_stage1_preprocess_job(
+            Path(video_path), job_id=task_id
+        )
+    except Exception as exc:
+        print(f"[video] ① 전처리 실패 ({task_id}): {exc}")
+        return None
+
+    print(f"[video] ② 전처리 완료 → 탐지 시작 ({task_id})")
+    storage_root = Path(get_stage1_storage_root())
+    if not storage_root.is_absolute():
+        storage_root = (Path(__file__).resolve().parents[3] / storage_root).resolve()
+
+    job_paths = build_job_paths(preprocess_result["job_id"], storage_root=storage_root)
+    preprocessing_json: Path = job_paths["preprocessing_json_path"]
+
+    if not preprocessing_json.exists():
+        print(f"[video] ② preprocessing.json 없음 ({task_id})")
+        return None
+
+    artifacts_dir = str(Path("storage/jobs") / task_id / "output")
+    create_video_detect_job(task_id, str(preprocessing_json.resolve()), artifacts_dir)
+    print(f"[video] ③ 딥페이크 탐지 모델 실행 중... ({task_id})")
+    run_video_detect_job(task_id, preprocessing_json)
+    print(f"[video] ③ 딥페이크 탐지 완료 ({task_id})")
+
+    result_path = Path(artifacts_dir) / "result.json"
+    if not result_path.exists():
+        from services.backend.tasks import get_video_detect_job
+        job = get_video_detect_job(task_id)
+        if job and job.get("result_path"):
+            result_path = Path(job["result_path"])
+
+    if result_path.exists():
+        try:
+            verdict, score = parse_result_json(result_path)
+            print(f"[video] ④ 결과 파싱 완료 → verdict={verdict}, score={score} ({task_id})")
+            return verdict, score
+        except Exception as exc:
+            print(f"[video] ④ 결과 파싱 실패 ({task_id}): {exc}")
+            return None
+
+    print(f"[video] ④ result.json 없음 ({task_id})")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 내부 헬퍼: 오디오 분석
+# ---------------------------------------------------------------------------
+
+def _run_audio_analysis(task_id: str, audio_path: str) -> bool:
+    """오디오 분석 실행. 성공 여부 반환."""
+    from services.backend.tasks import create_audio_job
+    from services.backend.services.audio_analyzer import run_audio_job
+
+    try:
+        create_audio_job(task_id, audio_path, str(Path("storage/jobs") / task_id / "audio"))
+        run_audio_job(task_id, Path(audio_path))
+        print(f"[audio] analysis completed for {task_id}")
+        return True
+    except Exception as exc:
+        print(f"[audio] analysis failed for {task_id}: {exc}")
+        return False
+
+
+# ---------------------------------------------------------------------------
+# 내부 헬퍼: 비디오 + 오디오 병렬 파이프라인
+# ---------------------------------------------------------------------------
+
+def _run_video_pipeline(task_id: str, video_path: str) -> None:
+    """비디오 분석 + 오디오 분석을 병렬로 실행 후 DB 저장."""
     db: Session = SessionLocal()
     try:
         task = db.query(models.VideoMetadata).filter(
@@ -45,60 +113,44 @@ def _run_video_pipeline(task_id: str, video_path: str) -> None:
         task.status = "PREPROCESSING"
         db.commit()
 
-        # 1. Stage1 전처리
-        try:
-            preprocess_result = run_video_stage1_preprocess_job(
-                Path(video_path), job_id=task_id
-            )
-        except Exception as exc:
-            task.status = "FAILED"
-            db.commit()
-            print(f"[pipeline] preprocess failed for {task_id}: {exc}")
-            return
+        audio_path = task.audio_path
 
-        storage_root = Path(get_stage1_storage_root())
-        if not storage_root.is_absolute():
-            storage_root = (Path(__file__).resolve().parents[3] / storage_root).resolve()
-
-        job_paths = build_job_paths(preprocess_result["job_id"], storage_root=storage_root)
-        preprocessing_json: Path = job_paths["preprocessing_json_path"]
-
-        if not preprocessing_json.exists():
-            task.status = "FAILED"
-            db.commit()
-            print(f"[pipeline] preprocessing.json not found for {task_id}")
-            return
-
-        # ── 상태: AI 탐지 중 ─────────────────────────────────────────────
+        # ── 상태: AI 분석 중 ─────────────────────────────────────────────
         task.status = "ANALYZING"
         db.commit()
 
-        # 2. Stage1 탐지 job 등록 & 동기 실행
-        artifacts_dir = str(Path("storage/jobs") / task_id / "output")
-        create_video_detect_job(task_id, str(preprocessing_json.resolve()), artifacts_dir)
-        run_video_detect_job(task_id, preprocessing_json)  # blocking in background thread
+        # 비디오 + 오디오 병렬 실행
+        video_result = None
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            video_future = executor.submit(_run_video_analysis, task_id, video_path)
 
-        # 3. result.json 파싱 → DB 저장
-        result_path = Path(artifacts_dir) / "result.json"
-        if not result_path.exists():
-            # detect job 이 결과를 저장한 경로를 tasks_db 에서 확인
-            from services.backend.tasks import get_video_detect_job
-            job = get_video_detect_job(task_id)
-            if job and job.get("result_path"):
-                result_path = Path(job["result_path"])
+            # 오디오 파일이 있을 때만 오디오 분석 실행
+            if audio_path and Path(audio_path).exists():
+                audio_future = executor.submit(_run_audio_analysis, task_id, audio_path)
+            else:
+                audio_future = None
 
-        if result_path.exists():
+            # 비디오 결과 수집
             try:
-                verdict, score = parse_result_json(result_path)
-                task.verdict = verdict
-                task.deepfake_score = score
-                task.status = "COMPLETED"
+                video_result = video_future.result()
             except Exception as exc:
-                print(f"[pipeline] result parse failed for {task_id}: {exc}")
-                task.status = "FAILED"
+                print(f"[pipeline] video thread error for {task_id}: {exc}")
+
+            # 오디오 결과 수집 (실패해도 전체 파이프라인은 계속)
+            if audio_future:
+                try:
+                    audio_future.result()
+                except Exception as exc:
+                    print(f"[pipeline] audio thread error for {task_id}: {exc}")
+
+        # ── 결과 DB 저장 ─────────────────────────────────────────────────
+        if video_result is not None:
+            verdict, score = video_result
+            task.verdict = verdict
+            task.deepfake_score = score
+            task.status = "COMPLETED"
         else:
             task.status = "FAILED"
-            print(f"[pipeline] result.json not found for {task_id}")
 
         db.commit()
 
@@ -119,15 +171,9 @@ def _run_video_pipeline(task_id: str, video_path: str) -> None:
 
 
 def _run_download_then_pipeline(task_id: str, url: str) -> None:
-    """인스타그램 다운로드 완료 후 비디오 파이프라인 자동 트리거.
-
-    run_download 는 async 함수이므로 새 이벤트 루프로 실행한 뒤
-    성공 시 _run_video_pipeline 을 이어서 호출합니다.
-    다운로드 실패 시 status 를 FAILED 로 업데이트합니다.
-    """
+    """인스타그램 다운로드 완료 후 비디오 파이프라인 자동 트리거."""
     import asyncio
 
-    # async run_download 를 동기 맥락에서 실행
     try:
         asyncio.run(run_download(task_id, url))
     except Exception as exc:
@@ -135,7 +181,6 @@ def _run_download_then_pipeline(task_id: str, url: str) -> None:
         _set_task_status(task_id, "FAILED")
         return
 
-    # 다운로드 후 DB 에서 video_path 조회
     db: Session = SessionLocal()
     try:
         task = db.query(models.VideoMetadata).filter(
@@ -148,7 +193,6 @@ def _run_download_then_pipeline(task_id: str, url: str) -> None:
     finally:
         db.close()
 
-    # 파이프라인 실행
     _run_video_pipeline(task_id, video_path)
 
 
@@ -185,7 +229,6 @@ async def receive_instagram(
     db.commit()
     db.refresh(new_task)
 
-    # 다운로드 완료 후 자동으로 video 파이프라인 트리거
     background_tasks.add_task(_run_download_then_pipeline, task_id, link)
 
     return {
@@ -212,12 +255,11 @@ async def receive_video(
         download_dir=download_dir,
         storage_path=video_path,
         audio_path=audio_path,
-        status="PENDING",  # 파이프라인이 완료되면 COMPLETED 로 업데이트됨
+        status="PENDING",
     )
     db.add(new_task)
     db.commit()
 
-    # 업로드 완료 즉시 AI 파이프라인 백그라운드 실행
     background_tasks.add_task(_run_video_pipeline, task_id, video_path)
 
     return {
@@ -242,7 +284,7 @@ async def get_status(task_id: str, db: Session = Depends(get_db)) -> dict:
         "video_path": task.storage_path,
         "audio_path": task.audio_path,
         "phash_value": task.phash_value,
-        "verdict": task.verdict,                                                 # [+ 추가]
-        "deepfake_score": task.deepfake_score,                                   # [+ 추가]
+        "verdict": task.verdict,
+        "deepfake_score": task.deepfake_score,
         "created_at": task.created_at.isoformat() if task.created_at else None,
     }

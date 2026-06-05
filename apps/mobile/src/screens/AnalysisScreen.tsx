@@ -35,7 +35,7 @@ function getStepStatus(stepNumber: number, activeStep: number): StepStatus {
     return 'wait';
 }
 
-const MAX_POLL_ATTEMPTS = 120;
+const MAX_POLL_ATTEMPTS = 300;
 const POLL_INTERVAL_MS = 2000;
 
 export const AnalysisScreen = ({ navigation, route }: any) => {
