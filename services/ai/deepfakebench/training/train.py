@@ -48,7 +48,34 @@ parser.add_argument("--ddp", action='store_true', default=False)
 parser.add_argument('--local_rank', type=int, default=0)
 parser.add_argument('--task_target', type=str, default="", help='specify the target of current training task')
 args = parser.parse_args()
-torch.cuda.set_device(args.local_rank)
+if torch.cuda.is_available():
+    torch.cuda.set_device(args.local_rank)
+
+def _build_dataloader_kwargs(config, batch_size):
+    num_workers = max(0, int(config.get("workers", 4)))
+    pin_memory = bool(config.get("pin_memory", True))
+    use_persistent = bool(config.get("persistent_workers", True)) and num_workers > 0
+    prefetch_factor = int(config.get("prefetch_factor", 2))
+    kwargs = {
+        "batch_size": batch_size,
+        "num_workers": num_workers,
+        "pin_memory": pin_memory,
+    }
+    if num_workers > 0:
+        kwargs["persistent_workers"] = use_persistent
+        kwargs["prefetch_factor"] = prefetch_factor
+    return kwargs
+
+
+def _resolve_batch_size_by_device(config):
+    use_cuda = bool(config.get("cuda", True)) and torch.cuda.is_available()
+    if use_cuda:
+        config['train_batchSize'] = int(config.get('train_batchSize_gpu', config.get('train_batchSize', 16)))
+        config['test_batchSize'] = int(config.get('test_batchSize_gpu', config.get('test_batchSize', 16)))
+    else:
+        config['train_batchSize'] = int(config.get('train_batchSize_cpu', config.get('train_batchSize', 8)))
+        config['test_batchSize'] = int(config.get('test_batchSize_cpu', config.get('test_batchSize', 8)))
+    return use_cuda
 
 
 def init_seed(config):
@@ -94,29 +121,29 @@ def prepare_training_data(config):
         train_data_loader = \
             torch.utils.data.DataLoader(
                 dataset=train_set,
-                batch_size=config['train_batchSize'],
-                num_workers=int(config['workers']),
+                **_build_dataloader_kwargs(config, config['train_batchSize']),
                 sampler=custom_sampler, 
                 collate_fn=train_set.collate_fn,
+                drop_last=bool(config.get("drop_last", False)),
             )
     elif config['ddp']:
         sampler = DistributedSampler(train_set)
         train_data_loader = \
             torch.utils.data.DataLoader(
                 dataset=train_set,
-                batch_size=config['train_batchSize'],
-                num_workers=int(config['workers']),
+                **_build_dataloader_kwargs(config, config['train_batchSize']),
                 collate_fn=train_set.collate_fn,
-                sampler=sampler
+                sampler=sampler,
+                drop_last=bool(config.get("drop_last", False)),
             )
     else:
         train_data_loader = \
             torch.utils.data.DataLoader(
                 dataset=train_set,
-                batch_size=config['train_batchSize'],
+                **_build_dataloader_kwargs(config, config['train_batchSize']),
                 shuffle=True,
-                num_workers=int(config['workers']),
                 collate_fn=train_set.collate_fn,
+                drop_last=bool(config.get("drop_last", False)),
                 )
     return train_data_loader
 
@@ -140,11 +167,10 @@ def prepare_testing_data(config):
         test_data_loader = \
             torch.utils.data.DataLoader(
                 dataset=test_set,
-                batch_size=config['test_batchSize'],
+                **_build_dataloader_kwargs(config, config['test_batchSize'], ),
                 shuffle=False,
-                num_workers=int(config['workers']),
                 collate_fn=test_set.collate_fn,
-                drop_last = (test_name=='DeepFakeDetection'),
+                drop_last=(test_name == 'DeepFakeDetection'),
             )
 
         return test_data_loader
@@ -243,6 +269,8 @@ def main():
     config['save_feat'] = args.save_feat
     if config['lmdb']:
         config['dataset_json_folder'] = 'preprocessing/dataset_json_v3'
+    config['use_cuda'] = _resolve_batch_size_by_device(config)
+    config['cuda'] = config['use_cuda']
     # create logger
     timenow=datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
     task_str = f"_{config['task_target']}" if config.get('task_target', None) is not None else ""

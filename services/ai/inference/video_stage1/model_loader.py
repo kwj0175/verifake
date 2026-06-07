@@ -6,8 +6,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import logging
+import os
 
 from services.ai.pipelines.video_stage1.exceptions import Stage1UnavailableError
+from services.ai.common.runtime_probe import summarize_runtime
 
 
 DEFAULT_CONFIG_PATH = (
@@ -60,7 +63,22 @@ def resolve_runtime_device(device: str = "auto"):
     torch = _load_torch_runtime()
 
     if device == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if not torch.cuda.is_available():
+            LOGGER.warning("Torch runtime has no CUDA device. Falling back to CPU.")
+            return torch.device("cpu")
+        preferred = os.environ.get("VERIFAKE_CUDA_DEVICE", "0").strip()
+        if preferred.isdigit():
+            device_index = int(preferred)
+            available_devices = torch.cuda.device_count()
+            if device_index < 0 or device_index >= available_devices:
+                LOGGER.warning(
+                    "Requested CUDA device %s is out of range (count=%s). Using cuda:0",
+                    device_index,
+                    available_devices,
+                )
+                return torch.device("cuda")
+            return torch.device(f"cuda:{device_index}")
+        return torch.device("cuda")
     return torch.device(device)
 
 
@@ -101,6 +119,8 @@ def load_efficientnet_b4_detector(
     config = load_detector_config(config_path)
     torch = _load_torch_runtime()
     runtime_device = resolve_runtime_device(device)
+    LOGGER.info("Stage1 runtime device selected: %s", runtime_device)
+    LOGGER.debug("Runtime env snapshot:\n%s", summarize_runtime())
 
     model = _build_runtime_inference_model(config).to(runtime_device)
     checkpoint = torch.load(resolved_weights_path, map_location=runtime_device)
@@ -109,3 +129,4 @@ def load_efficientnet_b4_detector(
     model.eval()
 
     return model, runtime_device, config
+LOGGER = logging.getLogger(__name__)

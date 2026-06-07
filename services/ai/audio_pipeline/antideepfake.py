@@ -20,8 +20,11 @@ import math
 import subprocess
 import sys
 import tempfile
+import wave
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from services.ai.common.runtime_probe import resolve_torch_device
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -80,6 +83,26 @@ def _resolve_existing_file(path: str | Path, *, label: str) -> Path:
 
 
 def _read_audio_metadata(audio_path: Path) -> AudioFileMetadata:
+    if audio_path.suffix.lower() == ".wav":
+        try:
+            with wave.open(str(audio_path), "rb") as handle:
+                sample_rate = handle.getframerate()
+                channels = handle.getnchannels()
+                bits_per_sample = handle.getsampwidth() * 8
+                frame_count = handle.getnframes()
+        except (wave.Error, OSError) as exc:
+            raise RuntimeError(f"Failed to read WAV metadata: {audio_path}") from exc
+
+        duration_seconds = float(frame_count) / float(sample_rate) if sample_rate > 0 else 0.0
+        encoding = "PCM_S" if bits_per_sample else "unknown"
+        return AudioFileMetadata(
+            duration_seconds=duration_seconds,
+            sample_rate=sample_rate,
+            channels=channels or 1,
+            encoding=encoding,
+            bits_per_sample=bits_per_sample,
+        )
+
     import importlib
 
     torchaudio = importlib.import_module("torchaudio")
@@ -249,6 +272,9 @@ def run_antideepfake_inference(
     artifacts_dir: str | Path | None = None,
     device: str | None = None,
 ) -> AntiDeepfakeInferenceResult:
+    if not device:
+        device = resolve_torch_device(default="cpu", cuda_index_env_var="VERIFAKE_CUDA_DEVICE")
+
     audio_path = _resolve_existing_file(file_path, label="audio file")
     resolved_hparams_path = _resolve_existing_file(hparams_path, label="hparams file")
     resolved_checkpoint_path = _resolve_existing_file(

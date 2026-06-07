@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 import wave
@@ -185,7 +186,7 @@ class AudioInferenceTests(unittest.TestCase):
             with patch(
                 "services.ai.audio_pipeline.audio_inference.run_antideepfake_inference",
                 side_effect=fake_inference,
-            ):
+            ), patch.dict(os.environ, {"VERIFAKE_FAST_AUDIO_ONCE": "0"}):
                 result = run_audio_inference(windows_json_path=windows_json)
 
             windows = result["audio_inference"]["windows"]
@@ -376,6 +377,11 @@ class AudioInferenceTests(unittest.TestCase):
             self.assertEqual(result["audio_inference"]["skipped_window_count"], 0)
             self.assertEqual(result["audio_inference"]["failed_window_count"], 1)
             self.assertEqual(result["audio_inference"]["windows"][0]["inference_status"], "failed_model_error")
+            self.assertEqual(
+                result["audio_inference"]["windows"][0]["model_error"],
+                "RuntimeError: model runtime failed",
+            )
+            self.assertEqual(result["audio_inference"]["model_errors"], ["RuntimeError: model runtime failed"])
             self.assertIn("INFERENCE_FAILED", result["audio_inference"]["quality_flags"])
 
     def test_input_wav_path_must_stay_under_stage_artifact_root(self) -> None:

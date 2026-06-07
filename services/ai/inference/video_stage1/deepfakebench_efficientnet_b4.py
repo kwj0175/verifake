@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from services.ai.inference.video_stage1.model_loader import (
@@ -11,6 +12,19 @@ from services.ai.inference.video_stage1.transforms import (
     preprocess_face_crop,
     stack_face_tensors,
 )
+
+
+@lru_cache(maxsize=4)
+def _cached_efficientnet_b4_detector(
+    weights_path: str,
+    config_path: str,
+    device: str,
+):
+    return load_efficientnet_b4_detector(
+        weights_path=weights_path,
+        config_path=config_path or None,
+        device=device,
+    )
 
 
 def predict_face_crops(
@@ -44,9 +58,11 @@ def predict_face_crops(
             )
         return results
 
-    model, runtime_device, detector_config = load_efficientnet_b4_detector(
+    import torch
+
+    model, runtime_device, detector_config = _cached_efficientnet_b4_detector(
         weights_path=weights_path or "",
-        config_path=config_path,
+        config_path=config_path or "",
         device=device,
     )
 
@@ -66,9 +82,11 @@ def predict_face_crops(
             )
             for item in batch_items
         ]
-        batch_tensor = stack_face_tensors(batch_tensors).to(runtime_device)
-        predictions = model({"image": batch_tensor}, inference=True)
-        probabilities = predictions["prob"].detach().cpu().tolist()
+        non_blocking = getattr(runtime_device, "type", "") == "cuda"
+        batch_tensor = stack_face_tensors(batch_tensors).to(runtime_device, non_blocking=non_blocking)
+        with torch.inference_mode():
+            predictions = model({"image": batch_tensor}, inference=True)
+            probabilities = predictions["prob"].detach().cpu().tolist()
 
         for item, probability in zip(batch_items, probabilities):
             results.append(

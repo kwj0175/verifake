@@ -114,8 +114,29 @@ def _scored_windows(inference_result: dict[str, Any]) -> list[dict[str, Any]]:
     return [window for window in windows if window.get("inference_status") == "scored"]
 
 
-def _mean_or_zero(values: list[float]) -> float:
-    return float(mean(values)) if values else 0.0
+def _mean_or_none(values: list[float]) -> float | None:
+    return float(mean(values)) if values else None
+
+
+def _score_values(windows: list[dict[str, Any]], key: str) -> list[float]:
+    values: list[float] = []
+    for window in windows:
+        value = window.get(key)
+        if value is not None:
+            values.append(float(value))
+    return values
+
+
+def _first_model_error(inference_result: dict[str, Any]) -> str | None:
+    audio_inference = inference_result.get("audio_inference", {})
+    model_errors = audio_inference.get("model_errors") or []
+    for error in model_errors:
+        if error:
+            return str(error)
+    for window in audio_inference.get("windows", []):
+        if window.get("inference_status") == "failed_model_error" and window.get("model_error"):
+            return str(window["model_error"])
+    return None
 
 
 def _compute_uncertainty(*, limits: dict[str, Any], score_summary: dict[str, Any], scored_window_count: int) -> float:
@@ -232,30 +253,37 @@ def run_audio_stage1(
     limits = _resolve_limits(preprocess_result, vad_result, windowing_result, inference_result, segments_result)
     stats = vad_result.get("audio_vad", {}).get("speech_stats", {})
     scored_windows = _scored_windows(inference_result)
-    failed_window_count = int(inference_result.get("audio_inference", {}).get("failed_window_count") or 0)
+    audio_inference = inference_result.get("audio_inference", {})
+    scored_window_count = len(scored_windows)
+    failed_window_count = int(audio_inference.get("failed_window_count") or 0)
+    skipped_window_count = int(audio_inference.get("skipped_window_count") or 0)
     limits = _apply_runtime_evidence_limits(
         limits=limits,
-        scored_window_count=len(scored_windows),
+        scored_window_count=scored_window_count,
         failed_window_count=failed_window_count,
     )
     evidence_level = _map_evidence_level(limits)
-    fake_scores = [float(window.get("audio_fake_score_raw") or 0.0) for window in scored_windows]
-    real_scores = [float(window.get("audio_real_score_raw") or 0.0) for window in scored_windows]
-    fake_probs = [float(window.get("audio_fake_prob_like") or 0.0) for window in scored_windows]
+    fake_scores = _score_values(scored_windows, "audio_fake_score_raw")
+    real_scores = _score_values(scored_windows, "audio_real_score_raw")
+    fake_probs = _score_values(scored_windows, "audio_fake_prob_like")
     score_summary = segments_result.get("audio_summary", {}).get("score_summary", {})
 
     final_result = AudioAnalysisResult(
         request_id=resolved_request_id,
         file_path=str(resolved_input_path),
         original_metadata=_map_original_metadata(preprocess_result),
-        audio_fake_score_raw=_mean_or_zero(fake_scores),
-        audio_real_score_raw=_mean_or_zero(real_scores),
-        audio_fake_prob_like=_mean_or_zero(fake_probs),
+        audio_fake_score_raw=_mean_or_none(fake_scores),
+        audio_real_score_raw=_mean_or_none(real_scores),
+        audio_fake_prob_like=_mean_or_none(fake_probs),
         audio_uncertainty=_compute_uncertainty(
             limits=limits,
             score_summary=score_summary,
-            scored_window_count=len(scored_windows),
+            scored_window_count=scored_window_count,
         ),
+        scored_window_count=scored_window_count,
+        failed_window_count=failed_window_count,
+        skipped_window_count=skipped_window_count,
+        audio_model_error=_first_model_error(inference_result),
         human_speech_detected=bool(vad_result.get("audio_vad", {}).get("human_speech_detected", False)),
         evidence_level=evidence_level,
         speech_duration_sec=float(stats.get("speech_duration_sec") or 0.0),

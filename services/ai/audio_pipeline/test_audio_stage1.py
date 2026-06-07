@@ -365,6 +365,11 @@ class AudioStage1Tests(unittest.TestCase):
 
             self.assertEqual(result["evidence_level"], "low_evidence")
             self.assertEqual(result["audio_uncertainty"], 1.0)
+            self.assertIsNone(result["audio_fake_score_raw"])
+            self.assertIsNone(result["audio_real_score_raw"])
+            self.assertIsNone(result["audio_fake_prob_like"])
+            self.assertEqual(result["scored_window_count"], 0)
+            self.assertEqual(result["skipped_window_count"], 1)
             self.assertEqual(result["top_suspicious_audio_segments"], [])
 
     def test_failed_inference_degrades_evidence_level(self) -> None:
@@ -376,7 +381,9 @@ class AudioStage1Tests(unittest.TestCase):
             normalized_wav_path = output_dir / "normalized" / "sample_16k_mono.wav"
             inference_result = _inference_result(normalized_wav_path)
             inference_result["audio_inference"]["failed_window_count"] = 1
+            inference_result["audio_inference"]["model_errors"] = ["RuntimeError: model runtime failed"]
             inference_result["audio_inference"]["windows"][1]["inference_status"] = "failed_model_error"
+            inference_result["audio_inference"]["windows"][1]["model_error"] = "RuntimeError: model runtime failed"
             inference_result["audio_inference"]["windows"][1]["audio_fake_score_raw"] = None
             inference_result["audio_inference"]["windows"][1]["audio_real_score_raw"] = None
             inference_result["audio_inference"]["windows"][1]["audio_fake_prob_like"] = None
@@ -401,6 +408,7 @@ class AudioStage1Tests(unittest.TestCase):
                 result = run_audio_stage1(input_path=input_path, output_dir=output_dir, request_id="req-failed")
 
             self.assertEqual(result["evidence_level"], "low_evidence")
+            self.assertEqual(result["audio_model_error"], "RuntimeError: model runtime failed")
 
 
 if __name__ == "__main__":

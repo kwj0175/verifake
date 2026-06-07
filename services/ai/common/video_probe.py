@@ -2,15 +2,24 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import subprocess
 from fractions import Fraction
 from pathlib import Path
+import logging
 
 import cv2
 import static_ffmpeg
 
 
-static_ffmpeg.add_paths()
+if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+    try:
+        static_ffmpeg.add_paths()
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "static_ffmpeg add_paths() failed during video probe setup: %s",
+            exc,
+        )
 
 
 def _parse_frame_rate(value: str | None) -> float:

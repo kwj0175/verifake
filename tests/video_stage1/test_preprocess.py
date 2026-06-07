@@ -21,6 +21,7 @@ def test_run_video_stage1_preprocess_writes_preprocessing_json(
     input_path = tmp_path / "sample.mov"
     input_path.write_bytes(b"fake-input")
     storage_root = tmp_path / "storage" / "jobs"
+    external_storage_root = tmp_path / "external" / "jobs"
 
     def fake_load_config() -> dict[str, Any]:
         return {
@@ -148,8 +149,12 @@ def test_run_video_stage1_preprocess_writes_preprocessing_json(
         ),
     )
 
-    result = preprocess.run_video_stage1_preprocess(str(input_path), job_id="job_test_002")
-    output_path = storage_root / "job_test_002" / "metadata" / "preprocessing.json"
+    result = preprocess.run_video_stage1_preprocess(
+        str(input_path),
+        job_id="job_test_002",
+        storage_root=external_storage_root,
+    )
+    output_path = external_storage_root / "job_test_002" / "metadata" / "preprocessing.json"
     saved = read_json(output_path)
 
     assert result["job_id"] == "job_test_002"
