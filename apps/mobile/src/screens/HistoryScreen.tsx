@@ -31,12 +31,22 @@ export const HistoryScreen = ({ navigation }: any) => {
     }, []);
 
     const renderItem = ({ item }: { item: HistoryItem }) => {
-        const isFake = item.status === 'FAKE';
+        // 버그 수정: item.status는 'COMPLETED'/'FAILED' 등이므로 verdict로 판별
+        const isFake = item.verdict?.toUpperCase() === 'FAKE';
 
         return (
             <TouchableOpacity
                 style={styles.historyCard}
-                onPress={() => navigation.navigate('Result')}
+                // 버그 수정: separatedMedia 파라미터 전달
+                onPress={() => navigation.navigate('Result', {
+                    separatedMedia: {
+                        task_id: item.task_id,
+                        status: item.status,
+                        verdict: item.verdict,
+                        deepfake_score: item.score,
+                    },
+                    thumbnailUri: item.thumb ?? null,
+                })}
             >
                 <Image
                     source={{ uri: item.thumb ?? 'https://via.placeholder.com/100' }}
@@ -45,7 +55,10 @@ export const HistoryScreen = ({ navigation }: any) => {
 
                 <View style={styles.infoContainer}>
                     <View style={[styles.statusBadge, isFake ? styles.bgFake : styles.bgReal]}>
-                        <Text style={styles.statusText}>{item.status}</Text>
+                        {/* 버그 수정: verdict를 badge에 표시 (status가 아닌 FAKE/REAL) */}
+                        <Text style={styles.statusText}>
+                            {item.verdict ? item.verdict.toUpperCase() : item.status}
+                        </Text>
                     </View>
                     <Text style={styles.videoTitle} numberOfLines={1}>{item.title}</Text>
                     <Text style={styles.dateText}>{item.date}</Text>
@@ -96,6 +109,7 @@ export const HistoryScreen = ({ navigation }: any) => {
             <FlatList
                 data={historyData}
                 renderItem={renderItem}
+                // 버그 수정: item.id는 이미 String으로 변환된 상태
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}

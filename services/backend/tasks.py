@@ -5,10 +5,12 @@ from typing import Any, Literal, TypedDict
 
 JobStatus = Literal["PENDING", "ANALYZING", "SUCCEEDED", "FAILED", "TIMED_OUT"]
 
-
+# ── 인메모리 저장소 (공개 dict로 통일) ───────────────────────────────────────
+# 버그 수정: _audio_jobs / _upload_tasks 이중 dict 제거 → 공개 dict로 통합
 upload_tasks_db: dict[str, dict[str, Any]] = {}
 audio_jobs_db: dict[str, dict[str, Any]] = {}
 video_detect_jobs_db: dict[str, dict[str, Any]] = {}
+
 
 class UploadTask(TypedDict):
     task_id: str
@@ -36,16 +38,20 @@ class AudioJob(TypedDict):
     finished_at: str | None
 
 
-_upload_tasks: dict[str, UploadTask] = {}
-_audio_jobs: dict[str, AudioJob] = {}
-
-
 def _now() -> str:
     return datetime.now().isoformat()
 
 
 # 하위 호환: create_video_detect_job 에서 _timestamp() 로 호출하는 코드와 맞춤
 _timestamp = _now
+
+
+# 버그 수정: 테스트에서 필요한 clear_stores() 함수 추가
+def clear_stores() -> None:
+    """테스트용: 모든 인메모리 저장소 초기화"""
+    upload_tasks_db.clear()
+    audio_jobs_db.clear()
+    video_detect_jobs_db.clear()
 
 
 def create_upload_task(task_id: str) -> UploadTask:
@@ -55,12 +61,12 @@ def create_upload_task(task_id: str) -> UploadTask:
         "verdict": None,
         "timestamp": _now(),
     }
-    _upload_tasks[task_id] = task
+    upload_tasks_db[task_id] = task
     return task
 
 
 def get_upload_task(task_id: str) -> UploadTask | None:
-    return _upload_tasks.get(task_id)
+    return upload_tasks_db.get(task_id)
 
 
 def create_audio_job(task_id: str, file_path: str, artifacts_dir: str) -> AudioJob:
@@ -82,21 +88,20 @@ def create_audio_job(task_id: str, file_path: str, artifacts_dir: str) -> AudioJ
         "started_at": None,
         "finished_at": None,
     }
-    _audio_jobs[task_id] = job
+    audio_jobs_db[task_id] = job
     return job
 
 
 def get_audio_job(task_id: str) -> AudioJob | None:
-    return _audio_jobs.get(task_id)
+    return audio_jobs_db.get(task_id)
 
 
 def update_audio_job(task_id: str, **fields: Any) -> AudioJob:
-    job = _audio_jobs.get(task_id)
+    job = audio_jobs_db.get(task_id)
     if job is None:
         raise KeyError(f"audio job not found: {task_id}")
     job.update(fields)  # type: ignore[typeddict-item]
     return job
-
 
 
 def create_video_detect_job(task_id: str, preprocessing_json: str, artifacts_dir: str) -> dict[str, Any]:
@@ -132,7 +137,7 @@ def update_video_detect_job(task_id: str, **fields: Any) -> dict[str, Any]:
 
 
 def start_audio_job(task_id: str, stage: str, audio_path: str, artifacts_dir: str, result_path: str) -> AudioJob:
-    job = _audio_jobs.get(task_id)
+    job = audio_jobs_db.get(task_id)
     if job is None:
         raise KeyError(f"audio job not found: {task_id}")
     job.update({
@@ -147,7 +152,7 @@ def start_audio_job(task_id: str, stage: str, audio_path: str, artifacts_dir: st
 
 
 def fail_audio_job(task_id: str, stage: str, error: str, stdout: str = "", stderr: str = "", returncode: int | None = None) -> AudioJob:
-    job = _audio_jobs.get(task_id)
+    job = audio_jobs_db.get(task_id)
     if job is None:
         raise KeyError(f"audio job not found: {task_id}")
     job.update({
@@ -163,7 +168,7 @@ def fail_audio_job(task_id: str, stage: str, error: str, stdout: str = "", stder
 
 
 def succeed_audio_job(task_id: str, stage: str, result: Any, stdout: str = "", stderr: str = "", returncode: int | None = None) -> AudioJob:
-    job = _audio_jobs.get(task_id)
+    job = audio_jobs_db.get(task_id)
     if job is None:
         raise KeyError(f"audio job not found: {task_id}")
     job.update({
@@ -179,7 +184,7 @@ def succeed_audio_job(task_id: str, stage: str, result: Any, stdout: str = "", s
 
 
 def timeout_audio_job(task_id: str, stage: str, timeout_sec: int, stdout: str = "", stderr: str = "") -> AudioJob:
-    job = _audio_jobs.get(task_id)
+    job = audio_jobs_db.get(task_id)
     if job is None:
         raise KeyError(f"audio job not found: {task_id}")
     job.update({

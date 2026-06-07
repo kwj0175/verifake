@@ -1,7 +1,6 @@
 # pyright: reportMissingImports=false, reportMissingModuleSource=false, reportUninitializedInstanceVariable=false
 from __future__ import annotations
 
-
 import json
 import subprocess
 import re
@@ -71,6 +70,7 @@ def run_video_stage1_preprocess_job(
 
 
 def _get_resolved_stage1_storage_root() -> Path:
+    """storage_root를 절대경로로 resolve하여 반환"""
     storage_root = _get_stage1_storage_root()
     if not storage_root.is_absolute():
         storage_root = _get_project_root() / storage_root
@@ -101,7 +101,9 @@ def _validate_project_file_path(raw_path: str) -> Path:
 
 def _validate_preprocessing_json_path(raw_path: str) -> Path:
     resolved = _resolve_existing_path(raw_path)
-    storage_root = _get_stage1_storage_root()
+    # 버그 수정: _get_stage1_storage_root()는 상대경로 반환 → 절대경로 비교 불가
+    # _get_resolved_stage1_storage_root()로 절대경로 resolve 후 비교
+    storage_root = _get_resolved_stage1_storage_root()
     if resolved.name != "preprocessing.json" or not _is_within_directory(resolved, storage_root):
         raise HTTPException(
             status_code=400,

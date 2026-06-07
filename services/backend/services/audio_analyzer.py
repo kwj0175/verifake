@@ -137,7 +137,7 @@ def run_audio_job(job_id: str, input_path: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         result_path = output_dir / RESULT_FILENAME
 
-        # 작업 시작
+        # 버그 수정: job_id= → task_id= (함수 시그니처와 키워드 인자명 불일치 수정)
         start_audio_job(
             task_id=job_id,
             stage="audio_stage1",
