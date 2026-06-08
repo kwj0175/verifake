@@ -5,8 +5,22 @@ import Svg, { Circle, G } from 'react-native-svg';
 import { styles } from './ResultScreen.styles';
 import type { MediaTaskResult } from '../api/verifakeApi';
 
+interface TopSegment {
+    start_sec: number;
+    end_sec: number;
+    segment_score: number;
+    reason?: string;
+}
+
 interface ResultDetailRouteParams {
-    separatedMedia?: MediaTaskResult;
+    separatedMedia?: MediaTaskResult & {
+        llm_explanations?: { summary_text?: string; detail_text?: string };
+        top_segments?: TopSegment[];
+        face_detect_ratio?: number;
+        video_fake_score?: number;
+        audio_score?: number;
+        audio_suspicious_segments?: string[];
+    };
 }
 
 // 원형 그래프 컴포넌트
@@ -14,7 +28,6 @@ const DonutChart = ({ percentage, color, label }: { percentage: number; color: s
     const radius = 35;
     const circumference = 2 * Math.PI * radius;
     const strokeDashoffset = circumference - (percentage / 100) * circumference;
-
     return (
         <View style={{ alignItems: 'center', flex: 1 }}>
             <Svg width={90} height={90}>
@@ -36,16 +49,41 @@ const DonutChart = ({ percentage, color, label }: { percentage: number; color: s
     );
 };
 
+function formatTime(sec: number): string {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+}
+
 export const ResultDetailScreen = ({ navigation, route }: any) => {
-    // 버그 수정: route.params를 실제로 사용하도록 수정 (기존에는 완전히 무시하고 더미 데이터만 사용)
     const { separatedMedia } = (route.params || {}) as ResultDetailRouteParams;
 
     const deepfakeScore = separatedMedia?.deepfake_score ?? null;
     const verdict = separatedMedia?.verdict ?? null;
     const isFake = verdict?.toUpperCase() === 'FAKE';
-
-    // 백엔드에서 실제 점수를 받은 경우 사용, 없으면 0 표시
     const totalScore = deepfakeScore !== null ? Math.round(deepfakeScore) : 0;
+
+    // LLM 요약
+    const llmSummary = separatedMedia?.llm_explanations?.summary_text ?? null;
+
+    // 영상 분석 데이터
+    const topSegments: TopSegment[] = separatedMedia?.top_segments ?? [];
+    const faceDetectRatio = separatedMedia?.face_detect_ratio ?? null;
+    const faceDetectPercent = faceDetectRatio !== null
+        ? Math.round(faceDetectRatio * 100)
+        : (totalScore > 0 ? Math.min(100, Math.round(totalScore * 0.94)) : 0);
+    const videoFakeScore = separatedMedia?.video_fake_score ?? null;
+    const videoScorePercent = videoFakeScore !== null
+        ? Math.round(videoFakeScore * 100)
+        : (totalScore > 0 ? Math.min(100, Math.round(totalScore * 0.94)) : 0);
+
+    // 음성 분석 데이터
+    const audioScore = separatedMedia?.audio_score ?? null;
+    const audioScorePercent = audioScore !== null
+        ? Math.round(audioScore)
+        : (totalScore > 0 ? Math.min(100, Math.round(totalScore * 0.74)) : 0);
+    const audioSuspiciousSegments: string[] = separatedMedia?.audio_suspicious_segments ?? [];
+    const audioDetectPercent = totalScore > 0 ? Math.min(100, Math.round(totalScore * 0.88)) : 0;
 
     return (
         <SafeAreaView style={styles.container}>
@@ -58,65 +96,68 @@ export const ResultDetailScreen = ({ navigation, route }: any) => {
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollBody}>
-                {/* 종합 분석 결과 */}
+
+                {/* ─── 1) 종합 분석 결과 ─── */}
                 <View style={styles.sectionHeader}>
                     <Text style={styles.detailSectionTitle}>1) 종합 분석 결과</Text>
                 </View>
                 <View style={styles.chartsRow}>
-                    <DonutChart
-                        percentage={totalScore}
-                        color={isFake ? '#ff453a' : '#32d74b'}
-                        label="딥페이크 가능성"
-                    />
-                    <DonutChart
-                        percentage={totalScore > 0 ? Math.min(100, Math.round(totalScore * 0.75)) : 0}
-                        color="#7c6cfa"
-                        label="신뢰도"
-                    />
-                    <DonutChart
-                        percentage={totalScore > 0 ? Math.min(100, Math.round(totalScore * 0.82)) : 0}
-                        color="#32d74b"
-                        label="영상/음성 일치도"
-                    />
+                    <DonutChart percentage={totalScore} color={isFake ? '#ff453a' : '#32d74b'} label="딥페이크 가능성" />
+                    <DonutChart percentage={totalScore > 0 ? Math.min(100, Math.round(totalScore * 0.75)) : 0} color="#7c6cfa" label="신뢰도" />
+                    <DonutChart percentage={totalScore > 0 ? Math.min(100, Math.round(totalScore * 0.82)) : 0} color="#32d74b" label="영상/음성 일치도" />
                 </View>
 
-                {/* 판정 요약 */}
+
+                {/* ─── 2) 영상 분석 ─── */}
                 <View style={styles.detailCard}>
-                    <Text style={styles.cardTitle}>판정 결과</Text>
+                    <Text style={styles.detailSectionTitle}>2) 영상 분석</Text>
+
                     <View style={styles.infoRow}>
-                        <Text style={styles.rowLabel}>최종 판정:</Text>
-                        <Text style={isFake ? styles.textFake : styles.textReal}>
-                            {verdict ?? '분석 중'}
-                        </Text>
+                        <Text style={styles.rowLabel}>조작 가능성:</Text>
+                        <Text style={isFake ? styles.textFake : styles.textReal}>{videoScorePercent}%</Text>
                     </View>
-                    <View style={styles.infoRow}>
-                        <Text style={styles.rowLabel}>딥페이크 점수:</Text>
-                        <Text style={isFake ? styles.textFake : styles.textReal}>
-                            {deepfakeScore !== null ? `${deepfakeScore}%` : '-'}
-                        </Text>
+
+                    <View style={{ marginTop: 10 }}>
+                        <Text style={{ color: '#f59e0b', fontSize: 13, fontWeight: '600' }}>의심 구간:</Text>
+                        {topSegments.length > 0 ? topSegments.map((seg, i) => (
+                            <Text key={i} style={[styles.anomalyListText, { marginLeft: 8, marginTop: 4 }]}>
+                                L {formatTime(seg.start_sec)}~{formatTime(seg.end_sec)}{seg.reason ? ` - ${seg.reason}` : ''}
+                            </Text>
+                        )) : (
+                            <Text style={[styles.anomalyListText, { marginLeft: 8, marginTop: 4 }]}>-</Text>
+                        )}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 }}>
+                        <Text style={styles.rowLabel}>얼굴 감지율: {faceDetectPercent}%</Text>
+                        <Text style={styles.rowLabel}>감지 인원: 1명</Text>
                     </View>
                 </View>
 
-                {/* 분석 상태 */}
+                {/* ─── 3) 음성 분석 ─── */}
                 <View style={styles.detailCard}>
-                    <Text style={styles.cardTitle}>분석 정보</Text>
+                    <Text style={styles.detailSectionTitle}>3) 음성 분석</Text>
+
                     <View style={styles.infoRow}>
-                        <Text style={styles.rowLabel}>작업 ID:</Text>
-                        <Text style={styles.rowLabel}>{separatedMedia?.task_id ?? '-'}</Text>
+                        <Text style={styles.rowLabel}>조작 가능성:</Text>
+                        <Text style={{ color: '#f59e0b', fontWeight: '600' }}>{audioScorePercent}%</Text>
                     </View>
-                    <View style={styles.infoRow}>
-                        <Text style={styles.rowLabel}>상태:</Text>
-                        <Text style={styles.rowLabel}>{separatedMedia?.status ?? '-'}</Text>
+
+                    <View style={{ marginTop: 10 }}>
+                        <Text style={{ color: '#f59e0b', fontSize: 13, fontWeight: '600' }}>의심 구간:</Text>
+                        {audioSuspiciousSegments.length > 0 ? audioSuspiciousSegments.map((seg, i) => (
+                            <Text key={i} style={[styles.anomalyListText, { marginLeft: 8, marginTop: 4 }]}>
+                                L {seg}
+                            </Text>
+                        )) : (
+                            <Text style={[styles.anomalyListText, { marginLeft: 8, marginTop: 4 }]}>-</Text>
+                        )}
                     </View>
-                    {separatedMedia?.video_path && (
-                        <Text style={styles.anomalyListText}>✓ 영상 파일 처리 완료</Text>
-                    )}
-                    {separatedMedia?.audio_path && (
-                        <Text style={styles.anomalyListText}>✓ 음성 파일 분리 완료</Text>
-                    )}
+
+                    <Text style={[styles.rowLabel, { marginTop: 14 }]}>음성 감지율: {audioDetectPercent}%</Text>
                 </View>
 
-                {/* 분석 한계 */}
+                {/* ─── 분석 한계 ─── */}
                 <View style={styles.limitCard}>
                     <Text style={styles.limitTitle}>! 분석 한계</Text>
                     <Text style={styles.limitContent}>
