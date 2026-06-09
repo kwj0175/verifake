@@ -46,16 +46,15 @@
             [
                 "expo-share-intent",
                 {
-                    "ios": {
-                        "activationRules": [
-                            "https://www.instagram.com/.*"
-                        ]
+                    "iosActivationRules": {
+                        "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+                        "NSExtensionActivationSupportsMovieWithMaxCount": 1,
+                        "NSExtensionActivationSupportsText": true
                     },
-                    "android": {
-                        "intentFilters": [
-                            "text/plain"
-                        ]
-                    }
+                    "androidIntentFilters": [
+                        "text/*",
+                        "video/*"
+                    ]
                 }
             ]
         ]

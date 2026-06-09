@@ -16,6 +16,7 @@
     "@react-navigation/native-stack": "^6.9.26",
     "expo": "~54.0.34",
     "expo-image-picker": "~17.0.11",
+    "expo-linking": "^56.0.13",
     "expo-share-intent": "^5.1.1",
     "expo-video-thumbnails": "~10.0.8",
     "nativewind": "^4.0.1",
