@@ -14,8 +14,34 @@ export const DetectionInputScreen = ({ navigation, route }: any) => {
     useEffect(() => {
         if (route.params?.sharedUrl) {
             setUrl(route.params.sharedUrl);
+            setVideoUri(null);
+            setThumbnailUri(null);
+            // Clean up navigation params so they don't re-trigger when returning to this screen
+            navigation.setParams({ sharedUrl: undefined });
+        } else if (route.params?.sharedVideoUri) {
+            const videoPath = route.params.sharedVideoUri;
+            setVideoUri(videoPath);
+            setUrl('');
+            setThumbnailUri(null);
+
+            // Generate thumbnail
+            (async () => {
+                try {
+                    const { uri } = await VideoThumbnails.getThumbnailAsync(videoPath, {
+                        time: 100,
+                    });
+                    const cacheBusterUri = `${uri}?t=${new Date().getTime()}`;
+                    setThumbnailUri(cacheBusterUri);
+                } catch (e) {
+                    console.warn('썸네일 생성 실패:', e);
+                    setThumbnailUri(null);
+                }
+            })();
+
+            // Clean up navigation params
+            navigation.setParams({ sharedVideoUri: undefined });
         }
-    }, [route.params?.sharedUrl]);
+    }, [route.params?.sharedUrl, route.params?.sharedVideoUri]);
 
     const pickVideo = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
