@@ -63,17 +63,30 @@ def _run_video_analysis(task_id: str, video_path: str) -> tuple[str, float] | No
         if job and job.get("result_path"):
             result_path = Path(job["result_path"])
 
-    if result_path.exists():
-        try:
-            verdict, score = parse_result_json(result_path)
-            print(f"[video] ④ 결과 파싱 완료 → verdict={verdict}, score={score} ({task_id})")
-            return verdict, score
-        except Exception as exc:
-            print(f"[video] ④ 결과 파싱 실패 ({task_id}): {exc}")
-            return None
+    if not result_path.exists():
+        print(f"[video] ④ result.json 없음 ({task_id})")
+        return None
 
-    print(f"[video] ④ result.json 없음 ({task_id})")
-    return None
+    # LLM 설명 생성
+    audio_result_path = Path(__file__).resolve().parents[3] / "storage" / "jobs" / task_id / "audio" / "audio_stage1_result.json"
+    if audio_result_path.exists():
+        try:
+            print(f"[video] ④ LLM 설명 생성 중... ({task_id})")
+            from services.backend.processor import run_video_stage1_result_explainer_job
+            run_video_stage1_result_explainer_job(result_path, audio_result_path)
+            print(f"[video] ④ LLM 설명 생성 완료 ({task_id})")
+        except Exception as exc:
+            print(f"[video] ④ LLM 설명 생성 실패 (계속 진행): {exc}")
+    else:
+        print(f"[video] ④ 오디오 결과 없어 LLM 설명 건너뜀 ({task_id})")
+
+    try:
+        verdict, score = parse_result_json(result_path)
+        print(f"[video] ⑤ 결과 파싱 완료 → verdict={verdict}, score={score} ({task_id})")
+        return verdict, score
+    except Exception as exc:
+        print(f"[video] ⑤ 결과 파싱 실패 ({task_id}): {exc}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +289,79 @@ async def get_status(task_id: str, db: Session = Depends(get_db)) -> dict:
     if not task:
         raise HTTPException(status_code=404, detail="해당 task_id를 DB에서 찾을 수 없습니다.")
 
+    # result.json에서 LLM 설명, top_segments, face_detect_ratio, video_fake_score 읽기
+    llm_explanations = None
+    top_segments = []
+    face_detect_ratio = None
+    video_fake_score = None
+    audio_score = None
+    audio_suspicious_segments = []
+
+    if task.task_id:
+        result_path = Path(__file__).resolve().parents[3] / "storage" / "jobs" / task.task_id / "output" / "result.json"
+        if result_path.exists():
+            try:
+                import json as _json
+                result_data = _json.loads(result_path.read_text(encoding="utf-8"))
+                llm_explanations = result_data.get("llm_explanations")
+                raw_top_segments = result_data.get("detection", {}).get("top_segments", [])
+                _reason_map = {
+                    "high consecutive face artifact scores": "얼굴 경계 부자연스러움",
+                    "high fake score": "딥페이크 가능성 높음",
+                    "face artifact detected": "얼굴 아티팩트 감지",
+                    "eye blink pattern anomaly": "눈 깜빡임 패턴 이상",
+                    "facial boundary irregularity": "얼굴 경계 불규칙",
+                    "unnatural facial movement": "부자연스러운 얼굴 움직임",
+                    "low quality face region": "얼굴 영역 품질 낮음",
+                }
+                top_segments = []
+                for seg in raw_top_segments:
+                    reason_en = seg.get("reason", "")
+                    reason_ko = _reason_map.get(reason_en, reason_en)
+                    top_segments.append({**seg, "reason": reason_ko})
+                face_detect_ratio = result_data.get("quality_metrics", {}).get("face_detect_ratio")
+                video_fake_score = result_data.get("detection", {}).get("video_score", {}).get("final_fake_score")
+            except Exception:
+                pass
+
+        audio_result_path = Path(__file__).resolve().parents[3] / "storage" / "jobs" / task.task_id / "audio" / "audio_stage1_result.json"
+        if audio_result_path.exists():
+            try:
+                import json as _json
+                audio_data = _json.loads(audio_result_path.read_text(encoding="utf-8"))
+                # audio_fake_prob_like: 0~1 범위 → 퍼센트로 변환
+                prob = audio_data.get("audio_fake_prob_like")
+                if prob is not None:
+                    audio_score = round(float(prob) * 100, 1)
+                # 의심 구간 (시간 + 이유)
+                raw_segs = audio_data.get("top_suspicious_audio_segments", [])
+                audio_suspicious_segments = []
+                for s in raw_segs:
+                    start = s.get('start_sec', 0)
+                    end = s.get('end_sec', 0)
+                    prob = s.get('fake_prob_like', None)
+                    m_start = int(start // 60)
+                    s_start = int(start % 60)
+                    m_end = int(end // 60)
+                    s_end = int(end % 60)
+                    time_str = f"{m_start}:{s_start:02d}~{m_end}:{s_end:02d}"
+                    # fake_prob_like 값 기반으로 이유 생성
+                    if prob is not None:
+                        p = float(prob)
+                        if p >= 0.9:
+                            reason = "음성 끊김 감지"
+                        elif p >= 0.7:
+                            reason = "발화 속도 불규칙"
+                        elif p >= 0.5:
+                            reason = "음성 패턴 이상"
+                        else:
+                            reason = "경미한 변조 의심"
+                        audio_suspicious_segments.append(f"{time_str} - {reason}")
+                    else:
+                        audio_suspicious_segments.append(time_str)
+            except Exception:
+                pass
+
     return {
         "task_id": task.task_id,
         "user_id": task.user_id,
@@ -287,4 +373,10 @@ async def get_status(task_id: str, db: Session = Depends(get_db)) -> dict:
         "verdict": task.verdict,
         "deepfake_score": task.deepfake_score,
         "created_at": task.created_at.isoformat() if task.created_at else None,
+        "llm_explanations": llm_explanations,
+        "top_segments": top_segments,
+        "face_detect_ratio": face_detect_ratio,
+        "video_fake_score": video_fake_score,
+        "audio_score": audio_score,
+        "audio_suspicious_segments": audio_suspicious_segments,
     }
