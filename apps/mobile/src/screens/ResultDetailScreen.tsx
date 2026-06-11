@@ -41,7 +41,7 @@ const DonutChart = ({ percentage, color, label }: { percentage: number; color: s
                     />
                 </G>
             </Svg>
-            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 20, justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ position: 'absolute', width: 90, height: 90, justifyContent: 'center', alignItems: 'center' }}>
                 <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold' }}>{percentage}%</Text>
             </View>
             <Text style={{ color: '#a0a0ab', fontSize: 11, marginTop: 8, textAlign: 'center' }}>{label}</Text>
@@ -160,9 +160,9 @@ export const ResultDetailScreen = ({ navigation, route }: any) => {
                 {/* ─── 4) 분석 정보 ─── */}
                 <View style={styles.detailCard}>
                     <Text style={styles.cardTitle}>분석 정보</Text>
-                    <View style={styles.infoRow}>
+                    <View style={[styles.infoRow, { alignItems: 'flex-start' }]}>
                         <Text style={styles.rowLabel}>작업 ID:</Text>
-                        <Text style={styles.rowLabel}>{separatedMedia?.task_id ?? '-'}</Text>
+                        <Text style={[styles.rowLabel, { flex: 1 }]}>{separatedMedia?.task_id ?? '-'}</Text>
                     </View>
                     <View style={styles.infoRow}>
                         <Text style={styles.rowLabel}>상태:</Text>
