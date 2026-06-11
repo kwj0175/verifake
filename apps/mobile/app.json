@@ -1,0 +1,62 @@
+{
+    "expo": {
+        "name": "VeriFake",
+        "slug": "verifake-mobile",
+        "version": "1.0.0",
+        "scheme": "verifake",
+        "orientation": "portrait",
+        "icon": "./assets/icon.png",
+        "userInterfaceStyle": "dark",
+        "ios": {
+            "bundleIdentifier": "com.verifake.app",
+            "supportsTablet": true,
+            "infoPlist": {
+                "CFBundleShareTypes": [
+                    "public.url"
+                ]
+            }
+        },
+        "android": {
+            "adaptiveIcon": {
+                "foregroundImage": "./assets/icon.png",
+                "backgroundColor": "#ffffff"
+            },
+            "package": "com.verifake.app",
+            "intentFilters": [
+                {
+                    "action": "SEND",
+                    "data": [
+                        {
+                            "mimeType": "image/*"
+                        },
+                        {
+                            "mimeType": "video/*"
+                        },
+                        {
+                            "mimeType": "text/plain"
+                        }
+                    ],
+                    "category": [
+                        "DEFAULT"
+                    ]
+                }
+            ]
+        },
+        "plugins": [
+            [
+                "expo-share-intent",
+                {
+                    "iosActivationRules": {
+                        "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+                        "NSExtensionActivationSupportsMovieWithMaxCount": 1,
+                        "NSExtensionActivationSupportsText": true
+                    },
+                    "androidIntentFilters": [
+                        "text/*",
+                        "video/*"
+                    ]
+                }
+            ]
+        ]
+    }
+}

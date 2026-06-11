@@ -1,0 +1,16 @@
+# Upstream AntiDeepfake runtime, adapted for this repo.
+# If the pinned fairseq VCS install fails in your environment,
+# fall back to the upstream install.sh sequence.
+
+torch==2.6.0
+torchaudio==2.6.0
+speechbrain==1.0.2
+tensorboard
+tensorboardX
+soundfile
+pandarallel
+scikit-learn
+numpy==1.21.2
+pandas==1.4.3
+scipy==1.7.3
+git+https://github.com/pytorch/fairseq.git@862efab86f649c04ea31545ce28d13c59560113d

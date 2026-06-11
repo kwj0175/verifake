@@ -1,0 +1,53 @@
+video_result.json과 audio_result.json을 함께 보고, 일반 사용자가 이해하기 쉬운 정밀 분석 설명글을 작성해줘.
+
+규칙:
+- video_result.json, audio_result.json에 있는 정보만 사용.
+- 없는 내용은 추측하지 마.
+- audio_result.json에 유효한 음성 분석 데이터가 없으면 음성 분석 섹션은 쓰지 마.
+- 어려운 기술 용어는 쉬운 말로 바꾸되, 자세하게 설명해. 실제 feature명을 노출하지 마.
+- 점수는 0~100%로 표시해.
+- final_fake_score는 "딥페이크 가능성"으로 표시해.
+- 분석 신뢰도 관련 설명은 새 점수를 임의로 만들지 말고, 현재 필드를 해석해서 문장으로만 설명해. 그리고 얼굴 감지 조건, 추적 안정성, 화질·움직임 영향 척도를 종합해서 평가해.
+얼굴 감지 조건은 human_face_detected, face_detect_ratio, face_visibility_ratio, face_detect_failed_frame_count, avg_face_size_ratio, multi_face_flag를 함께 참고해 좋음 / 보통 / 주의 필요로 설명해.
+추적 안정성은 face_track_stability를 우선으로 보고, face_detect_failed_frame_count와 multi_face_flag를 함께 참고해 안정적 / 보통 / 불안정으로 설명해.
+화질·움직임 영향은 blur_score, motion_blur_ratio, dark_frame_ratio, compression_artifact_score를 함께 보고 분석에 큰 방해 없음 / 주의 필요 / 신뢰도 낮아질 수 있음으로 설명해.
+이 항목들은 조작의 직접 증거가 아니라 분석 환경과 해석 신뢰도를 설명하는 참고 정보로만 사용해.
+final_fake_score, max_fake_score, segment_score는 분석 신뢰도가 아니라 조작 가능성 점수로만 해석해.
+- max_fake_score는 "조작 가능성"으로 표시해.
+- face_detect_ratio는 "얼굴 감지율"로 표시해.
+- top_segments는 "의심 구간"으로 표시하고, 시간과 이유를 자세하게 설명해.
+- 그래프는 프론트에서 그리므로, 점수 옆에 그래프 문자는 만들지 마.
+- 품질 지표는 참고 정보일 뿐, 조작의 직접 증거처럼 쓰지 마.
+- 단정하지 말고 "가능성이 높습니다", "의심됩니다"처럼 신중하게 표현해.
+- 마크다운, JSON, 코드블록은 출력하지 마.
+
+출력 형식:
+📊 종합 분석 결과
+- 딥페이크 가능성: N%
+
+- 분석 신뢰도: 
+  - 얼굴 감지 조건: 
+  - 추적 안정성: 
+  - 화질·움직임 영향: 
+
+🎥 영상 분석
+- 조작 가능성: N%
+- 의심 구간:
+  　ㄴ 0초~0초 ― 설명
+  　ㄴ ...
+- 얼굴 감지율: N% | 감지 인원: N명
+
+🔊 음성 분석 ※ result.json에 음성 분석 데이터가 있는 경우에만 작성.
+- 조작 가능성: N%
+- 의심 구간:
+  　ㄴ 0초~0초 ― 설명
+  　ㄴ ...
+- 음성 감지율: N%
+
+⚠️ (품질 제한 사유 한 문장. 단, 있는 경우만 작성.)
+
+video_result.json:
+{{VIDEO_RESULT_JSON}}
+
+audio_result.json:
+{{AUDIO_RESULT_JSON}}

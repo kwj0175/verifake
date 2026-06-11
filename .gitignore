@@ -4,6 +4,8 @@ __pycache__/
 *.env
 venv/
 .venv/
+.venv*/
+.pytest_cache/
 
 # Node / React Native
 node_modules/
@@ -25,3 +27,41 @@ Thumbs.db
 .env.production
 *.key
 *.pem
+
+# AI model checkpoints
+services/ai/checkpoints/**/*.ckpt
+services/ai/checkpoints/**/*.pt
+services/ai/checkpoints/**/*.pth
+services/ai/checkpoints/**/*.bin
+services/ai/checkpoints/**/*.safetensors
+storage/audio/
+storage/video/
+storage/tmp/
+storage/jobs/
+outputs/
+
+# Dataset inputs and evaluation artifacts
+FakeAVCeleb_v1.2/
+FakeAVCeleb_v1.2_eval_outputs/
+*_eval_outputs/
+/run_*/
+pytest-tmp-codex-*/
+dataset_eval*.log
+dataset_eval*.err
+manifest*.jsonl
+predictions_*.jsonl
+predictions_*.csv
+metrics.json
+metrics_*.json
+failed_cases.jsonl
+storage/audio_smoke*/
+storage/video_smoke*/
+storage/dataset_eval*/
+storage/eval*/
+storage/**/*_result.json
+
+# --- Backend Security Files ---
+services/backend/services/config.py
+services/backend/firebase-adminsdk.json
+**/config.py
+**/firebase-adminsdk.json

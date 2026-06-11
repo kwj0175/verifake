@@ -1,0 +1,76 @@
+{
+  "schema_version": "video-stage1-v1",
+  "job_id": "mock_job_001",
+  "pipeline_stage": 1,
+  "status": "success",
+  "input": {
+    "normalized_video_path": "tests/fixtures/video_stage1/mock_job_001/input/normalized.mp4"
+  },
+  "video_metadata": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30.0,
+    "duration_sec": 10.0,
+    "total_frame_count": 300,
+    "sample_fps": 3.0,
+    "sampled_frame_count": 3
+  },
+  "quality_metrics": {
+    "face_detect_ratio": 0.9,
+    "face_visibility_ratio": 0.88,
+    "avg_face_size_ratio": 0.16,
+    "blur_score": 0.18,
+    "motion_blur_ratio": 0.05,
+    "dark_frame_ratio": 0.02,
+    "compression_artifact_score": 0.14
+  },
+  "face_summary": {
+    "human_face_detected": true,
+    "multi_face_flag": false,
+    "face_track_stability": 0.84
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp_sec": 0.0,
+      "frame_path": "tests/fixtures/video_stage1/mock_job_001/frames/frame_000000.jpg",
+      "face_count": 1,
+      "faces": [
+        {
+          "face_id": "face_000000_00",
+          "face_index": 0,
+          "detected": true,
+          "bbox": [300, 120, 520, 380],
+          "bbox_area_ratio": 0.062,
+          "detection_confidence": 0.97,
+          "crop_path": "tests/fixtures/video_stage1/mock_job_001/faces/frame_000000_face_00.jpg"
+        }
+      ]
+    },
+    {
+      "frame_index": 1,
+      "timestamp_sec": 0.333,
+      "frame_path": "tests/fixtures/video_stage1/mock_job_001/frames/frame_000001.jpg",
+      "face_count": 0,
+      "faces": []
+    },
+    {
+      "frame_index": 2,
+      "timestamp_sec": 0.666,
+      "frame_path": "tests/fixtures/video_stage1/mock_job_001/frames/frame_000002.jpg",
+      "face_count": 1,
+      "faces": [
+        {
+          "face_id": "face_000002_00",
+          "face_index": 0,
+          "detected": true,
+          "bbox": [302, 122, 522, 382],
+          "bbox_area_ratio": 0.061,
+          "detection_confidence": 0.96,
+          "crop_path": "tests/fixtures/video_stage1/mock_job_001/faces/frame_000002_face_00.jpg"
+        }
+      ]
+    }
+  ],
+  "errors": []
+}
