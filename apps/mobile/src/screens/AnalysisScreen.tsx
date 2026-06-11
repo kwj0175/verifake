@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { styles } from './AnalysisScreen.styles';
-import { ClipboardDocumentCheckIcon } from 'react-native-heroicons/outline';
+import { styles, iconProps } from './AnalysisScreen.styles';
+import { ClipboardDocumentCheckIcon, CheckIcon, EllipsisHorizontalIcon } from 'react-native-heroicons/outline';
 import { BottomNavigation } from '../components/BottomNavigaton';
 import {
     uploadVideoForSeparation,
@@ -136,8 +136,8 @@ export const AnalysisScreen = ({ navigation, route }: any) => {
                         return (
                             <View key={stepNumber} style={[styles.stepItem, status === 'done' ? styles.stepDone : styles.stepWait]}>
                                 <View style={[styles.checkCircle, status === 'done' && styles.checkCircleDone]}>
-                                    {status === 'done' && <Text style={styles.checkIcon}>✓</Text>}
-                                    {status === 'loading' && <Text style={styles.loadingIcon}>…</Text>}
+                                    {status === 'done' && <CheckIcon {...iconProps.checkIcon} />}
+                                    {status === 'loading' && <EllipsisHorizontalIcon {...iconProps.loadingIcon} />}
                                 </View>
                                 <Text style={[styles.stepLabel, status === 'done' && styles.textDone]}>
                                     {label}
