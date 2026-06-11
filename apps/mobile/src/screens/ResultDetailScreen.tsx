@@ -157,6 +157,25 @@ export const ResultDetailScreen = ({ navigation, route }: any) => {
                     <Text style={[styles.rowLabel, { marginTop: 14 }]}>음성 감지율: {audioDetectPercent}%</Text>
                 </View>
 
+                {/* ─── 4) 분석 정보 ─── */}
+                <View style={styles.detailCard}>
+                    <Text style={styles.cardTitle}>분석 정보</Text>
+                    <View style={styles.infoRow}>
+                        <Text style={styles.rowLabel}>작업 ID:</Text>
+                        <Text style={styles.rowLabel}>{separatedMedia?.task_id ?? '-'}</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                        <Text style={styles.rowLabel}>상태:</Text>
+                        <Text style={styles.rowLabel}>{separatedMedia?.status ?? '-'}</Text>
+                    </View>
+                    {separatedMedia?.video_path && (
+                        <Text style={styles.anomalyListText}>✓ 영상 파일 처리 완료</Text>
+                    )}
+                    {separatedMedia?.audio_path && (
+                        <Text style={styles.anomalyListText}>✓ 음성 파일 분리 완료</Text>
+                    )}
+                </View>
+
                 {/* ─── 분석 한계 ─── */}
                 <View style={styles.limitCard}>
                     <Text style={styles.limitTitle}>! 분석 한계</Text>

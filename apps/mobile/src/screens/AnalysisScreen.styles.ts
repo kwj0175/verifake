@@ -47,9 +47,12 @@ export const styles = StyleSheet.create({
     },
     checkCircleDone: { backgroundColor: '#34c759', borderColor: '#34c759' },
     checkCircleError: { backgroundColor: '#ff453a', borderColor: '#ff453a' },
-    checkIcon: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-    loadingIcon: { color: '#7c6cfa', fontSize: 16, fontWeight: 'bold', lineHeight: 16 },
     stepLabel: { color: '#444468', fontSize: 15 },
     textDone: { color: '#34c759', fontWeight: '600' },
     textError: { color: '#ff453a', fontWeight: '600' },
 });
+
+export const iconProps = {
+    checkIcon: { size: 12, color: '#fff', strokeWidth: 3 },
+    loadingIcon: { size: 16, color: '#7c6cfa', strokeWidth: 2.5 },
+};
